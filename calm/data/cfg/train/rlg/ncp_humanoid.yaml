@@ -42,14 +42,14 @@ params:
     save_frequency: 50
     save_intermediate: True
     print_stats: True
-    grad_norm: 1.0
+    grad_norm: 0.5
     entropy_coef: 0.0
-    truncate_grads: False
+    truncate_grads: True
     e_clip: 0.1
     horizon_length: 32
     minibatch_size: 16384
     mini_epochs: 6
-    critic_coef: 4
+    critic_coef: 1
     clip_value: False
     seq_len: 4
     bounds_loss_coef: 0

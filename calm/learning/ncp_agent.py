@@ -44,6 +44,7 @@ import gym
 import os
 from torch import optim
 from datetime import datetime
+from torch import nn
 
 class NCPAgent(common_agent.CommonAgent):
     def __init__(self, base_name, config):
@@ -352,8 +353,22 @@ class NCPAgent(common_agent.CommonAgent):
                     param.grad = None
 
         self.scaler.scale(loss).backward()
-        self.scaler.step(self.optimizer)
-        self.scaler.update()
+        if self.truncate_grads:
+            if self.multi_gpu:
+                self.optimizer.synchronize()
+                self.scaler.unscale_(self.optimizer)
+                nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm)
+                with self.optimizer.skip_synchronize():
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+            else:
+                self.scaler.unscale_(self.optimizer)
+                nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_norm)
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+        else:
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
 
         with torch.no_grad():
             reduce_kl = not self.is_rnn
