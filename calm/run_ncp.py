@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from utils.config import set_np_formatting, set_seed, get_args, parse_sim_params, load_cfg
-from utils.parse_task import parse_task
+from utils.parse_task_ncp import parse_task
 
 from rl_games.algos_torch import torch_ext
 from rl_games.common import env_configurations, vecenv
@@ -52,6 +52,11 @@ from learning import calm_agent
 from learning import calm_players
 from learning import calm_models
 from learning import calm_network_builder
+
+from learning import ncp_agent
+from learning import ncp_players
+from learning import ncp_models
+from learning import ncp_network_builder
 
 from env.tasks import humanoid_amp_task
 
@@ -211,6 +216,11 @@ def build_alg_runner(algo_observer):
     runner.player_factory.register_builder('calm', lambda **kwargs: calm_players.CALMPlayer(**kwargs))
     runner.model_builder.model_factory.register_builder('calm', lambda network, **kwargs: calm_models.ModelCALMContinuous(network))
     runner.model_builder.network_factory.register_builder('calm', lambda **kwargs: calm_network_builder.CALMBuilder())
+
+    runner.algo_factory.register_builder('ncp', lambda **kwargs: ncp_agent.NCPAgent(**kwargs))
+    runner.player_factory.register_builder('ncp', lambda **kwargs: ncp_players.NCPPlayer(**kwargs))
+    runner.model_builder.model_factory.register_builder('ncp', lambda network, **kwargs: ncp_models.ModelNCPContinuous(network))
+    runner.model_builder.network_factory.register_builder('ncp', lambda **kwargs: ncp_network_builder.NCPBuilder())
 
     return runner
 

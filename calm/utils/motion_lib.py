@@ -269,6 +269,24 @@ class MotionLib(DeviceDtypeModuleMixin):
     def get_motion_length(self, motion_ids):
         return self.state.motion_lengths[motion_ids]
 
+    def get_motion_global_rotation(self, motion_ids, motion_times):
+        motion_len = self._motion_lengths[motion_ids]
+        num_frames = self._motion_num_frames[motion_ids]
+        dt = self._motion_dt[motion_ids]
+
+        frame_idx0, frame_idx1, blend = self._calc_frame_blend(motion_times, motion_len, num_frames, dt)
+
+        f0l = frame_idx0 + self.length_starts[motion_ids]
+        f1l = frame_idx1 + self.length_starts[motion_ids]
+
+        global_rot0 = self.grs[f0l]
+        global_rot1 = self.grs[f1l]
+        flatten_global_rot0 = global_rot0.view(global_rot0.shape[0] * global_rot0.shape[1], global_rot0.shape[2])
+        flatten_global_rot1 = global_rot1.view(global_rot1.shape[0] * global_rot1.shape[1], global_rot1.shape[2])
+        flatten_blend = blend.unsqueeze(-1).repeat(1, global_rot0.shape[1]).reshape(-1, 1)
+        global_rot = torch_utils.slerp(flatten_global_rot0, flatten_global_rot1, flatten_blend)
+        return global_rot.view(*global_rot0.shape)
+
     def get_motion_state(self, motion_ids, motion_times):
         motion_len = self.state.motion_lengths[motion_ids]
         num_frames = self.state.motion_num_frames[motion_ids]

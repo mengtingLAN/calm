@@ -26,40 +26,44 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import torch
-from rl_games.common import datasets
+from NCP_envs.tasks.humanoid import Humanoid
+from NCP_envs.tasks.humanoid_ncp import HumanoidNCP
+from NCP_envs.tasks.humanoid_ncp_getup import HumanoidNCPGetup
+from NCP_envs.tasks.humanoid_view_motion import HumanoidViewMotion
+from NCP_envs.tasks.vec_task_wrappers import VecTaskPythonWrapper
+
+from isaacgym import rlgpu
+
+import json
+import numpy as np
 
 
-class AMPDataset(datasets.PPODataset):
-    def __init__(self, batch_size, minibatch_size, is_discrete, is_rnn, device, seq_len):
-        super().__init__(batch_size, minibatch_size, is_discrete, is_rnn, device, seq_len)
-        self._idx_buf = torch.randperm(batch_size)
-        return
-    
-    def update_mu_sigma(self, mu, sigma):	  
-        raise NotImplementedError()
-        return
+def warn_task_name():
+    raise Exception(
+        "Unrecognized task!\nTask should be one of: [BallBalance, Cartpole, CartpoleYUp, Ant, Humanoid, Anymal, FrankaCabinet, Quadcopter, ShadowHand, ShadowHandLSTM, ShadowHandFFOpenAI, ShadowHandFFOpenAITest, ShadowHandOpenAI, ShadowHandOpenAITest, Ingenuity]")
 
-    def _get_item(self, idx):
-        start = idx * self.minibatch_size
-        end = (idx + 1) * self.minibatch_size
-        sample_idx = self._idx_buf[start:end]
 
-        input_dict = {}
-        for k, v in self.values_dict.items():
-            if k not in self.special_names and v is not None:
-                if type(v) is dict:
-                    input_dict[k] = {}
-                    for key, val in v.items():
-                        input_dict[k][key] = val[sample_idx]
-                else:
-                    input_dict[k] = v[sample_idx]
-                
-        if end >= self.batch_size:
-            self._shuffle_idx_buf()
+def parse_task(args, cfg, cfg_train, sim_params):
 
-        return input_dict
+    # create native task and pass custom config
+    device_id = args.device_id
+    rl_device = args.rl_device
 
-    def _shuffle_idx_buf(self):
-        self._idx_buf[:] = torch.randperm(self.batch_size)
-        return
+    cfg["seed"] = cfg_train.get("seed", -1)
+    cfg_task = cfg["env"]
+    cfg_task["seed"] = cfg["seed"]
+
+    try:
+        task = eval(args.task)(
+            cfg=cfg,
+            sim_params=sim_params,
+            physics_engine=args.physics_engine,
+            device_type=args.device,
+            device_id=device_id,
+            headless=args.headless)
+    except NameError as e:
+        print(e)
+        warn_task_name()
+    env = VecTaskPythonWrapper(task, rl_device, cfg_train.get("clip_observations", np.inf), cfg_train.get("clip_actions", 1.0))
+
+    return task, env

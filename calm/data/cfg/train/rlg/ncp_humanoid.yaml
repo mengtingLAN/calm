@@ -1,0 +1,60 @@
+params:
+  seed: -1
+
+  algo:
+    name: ncp
+
+  model:
+    name: ncp
+
+  network:
+    name: ncp
+    separate: True
+
+    rms_momentum: 0.0001
+    embed_dim: 1024
+    z_len: 64
+    num_embeddings: 512
+    code_num: 1
+
+
+  load_checkpoint: False
+
+  config:
+    name: Humanoid
+    env_name: rlgpu
+    multi_gpu: False
+    ppo: True
+    mixed_precision: True
+    normalize_input: False
+    normalize_value: False
+    reward_shaper:
+      scale_value: 1
+    scale_value: 1
+    normalize_advantage: True
+    gamma: 0.95
+    tau: 0.95
+    learning_rate: 1e-4
+    lr_schedule: constant
+    score_to_win: 20000
+    max_epochs: 100000
+    save_best_after: 50
+    save_frequency: 50
+    save_intermediate: True
+    print_stats: True
+    grad_norm: 1.0
+    entropy_coef: 0.0
+    truncate_grads: False
+    e_clip: 0.1
+    horizon_length: 32
+    minibatch_size: 16384
+    mini_epochs: 6
+    critic_coef: 4
+    clip_value: False
+    seq_len: 4
+    bounds_loss_coef: 0
+    e_latent_loss_coef: 0.25
+    q_latent_loss_coef: 1.0
+    rms_loss_coef: 1.0
+
+

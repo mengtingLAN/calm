@@ -36,7 +36,7 @@ from isaacgym.torch_utils import *
 
 from utils import torch_utils
 
-from env.tasks.base_task import BaseTask
+from NCP_envs.tasks.base_task import BaseTask
 
 class Humanoid(BaseTask):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
@@ -56,6 +56,8 @@ class Humanoid(BaseTask):
         self._local_root_obs = self.cfg["env"]["localRootObs"]
         self._root_height_obs = self.cfg["env"].get("rootHeightObs", True)
         self._enable_early_termination = self.cfg["env"]["enableEarlyTermination"]
+        self._equal_motion_weights = cfg["env"].get("equal_motion_weights", False)
+
         
         key_bodies = self.cfg["env"]["keyBodies"]
         self._setup_character_props(key_bodies)
@@ -78,11 +80,12 @@ class Humanoid(BaseTask):
         rigid_body_state = self.gym.acquire_rigid_body_state_tensor(self.sim)
         contact_force_tensor = self.gym.acquire_net_contact_force_tensor(self.sim)
 
-        sensors_per_env = 2
+        num_humanoid = self.cfg["env"].get("numHumanoid", 1)
+        sensors_per_env = 2 * num_humanoid
         self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, sensors_per_env * 6)
 
         dof_force_tensor = self.gym.acquire_dof_force_tensor(self.sim)
-        self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(self.num_envs, self.num_dof)
+        self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(self.num_envs, num_humanoid * self.num_dof)
         
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -100,13 +103,24 @@ class Humanoid(BaseTask):
 
         # create some wrapper tensors for different slices
         self._dof_state = gymtorch.wrap_tensor(dof_state_tensor)
-        dofs_per_env = self._dof_state.shape[0] // self.num_envs
-        self._dof_pos = self._dof_state.view(self.num_envs, dofs_per_env, 2)[..., :self.num_dof, 0]
-        self._dof_vel = self._dof_state.view(self.num_envs, dofs_per_env, 2)[..., :self.num_dof, 1]
+        dofs_per_env = self._dof_state.shape[0] // self.num_envs // num_humanoid
+        self._dof_pos = self._dof_state.view(self.num_envs, num_humanoid, dofs_per_env, 2)[:, 0, :self.num_dof, 0]
+        self._dof_vel = self._dof_state.view(self.num_envs, num_humanoid, dofs_per_env, 2)[:, 0, :self.num_dof, 1]
         
         self._initial_dof_pos = torch.zeros_like(self._dof_pos, device=self.device, dtype=torch.float)
         self._initial_dof_vel = torch.zeros_like(self._dof_vel, device=self.device, dtype=torch.float)
-        
+
+        asset_file = self.cfg["env"]["asset"]["assetFileName"]
+        if asset_file == "mjcf/amp_humanoid_sword_shield.xml":
+            self._initial_humanoid_root_states[:, :7] = torch.tensor([0, 0, 0.7029, -0.0161, 0.0408, -0.4152, 0.9087],
+                                                                     device=self.device)
+            self._initial_dof_pos[:] = torch.tensor(
+                [-0.0332, 0.7188, -0.0486, -0.2707, -0.4867, 0.7920, -0.6555, -0.7538,
+                 0.1940, -1.0916, -0.2085, -0.0238, 0.1948, 1.0533, -0.3915, -0.0962,
+                 -1.7262, -0.4359, -0.5734, -0.1918, 1.0851, 0.4599, -0.4600, 0.0280,
+                 0.5699, -0.9060, 0.4134, 1.0562, -0.2918, -0.1101, -0.0371],
+                device=self.device)
+            self._initial_dof_vel[:] = 0.0
         self._rigid_body_state = gymtorch.wrap_tensor(rigid_body_state)
         bodies_per_env = self._rigid_body_state.shape[0] // self.num_envs
         rigid_body_state_reshaped = self._rigid_body_state.view(self.num_envs, bodies_per_env, 13)
@@ -126,9 +140,7 @@ class Humanoid(BaseTask):
         contact_bodies = self.cfg["env"]["contactBodies"]
         self._key_body_ids = self._build_key_body_ids_tensor(key_bodies)
         self._contact_body_ids = self._build_contact_body_ids_tensor(contact_bodies)
-
-        self._prev_root_pos = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float)
-
+        
         if self.viewer is not None:
             self._init_camera()
             
@@ -156,7 +168,7 @@ class Humanoid(BaseTask):
         if env_ids is None:
             env_ids = to_torch(np.arange(self.num_envs), device=self.device, dtype=torch.long)
         self._reset_envs(env_ids)
-        return
+        return self.obs_buf
 
     def set_char_color(self, col, env_ids):
         for env_id in env_ids:
@@ -204,23 +216,23 @@ class Humanoid(BaseTask):
         asset_file = self.cfg["env"]["asset"]["assetFileName"]
         num_key_bodies = len(key_bodies)
 
-        if asset_file == "mjcf/amp_humanoid.xml":
+        if (asset_file == "mjcf/amp_humanoid.xml"):
             self._dof_body_ids = [1, 2, 3, 4, 6, 7, 9, 10, 11, 12, 13, 14]
             self._dof_offsets = [0, 3, 6, 9, 10, 13, 14, 17, 18, 21, 24, 25, 28]
             self._dof_obs_size = 72
             self._num_actions = 28
-            self._num_obs = 1 + 15 * (3 + 6 + 3 + 3) - 3
-            
-        elif asset_file == "mjcf/amp_humanoid_sword_shield.xml":
+            self._num_obs = 1 + 15 * (3 + 6 + 3 + 3) - 3 + 72 + 28
+
+        elif (asset_file == "mjcf/amp_humanoid_sword_shield.xml"):
             self._dof_body_ids = [1, 2, 3, 4, 5, 7, 8, 11, 12, 13, 14, 15, 16]
             self._dof_offsets = [0, 3, 6, 9, 10, 13, 16, 17, 20, 21, 24, 27, 28, 31]
             self._dof_obs_size = 78
             self._num_actions = 31
-            self._num_obs = 1 + 17 * (3 + 6 + 3 + 3) - 3
+            self._num_obs = 1 + 17 * (3 + 6 + 3 + 3) - 3 + 78 + 31
 
         else:
-            print("Unsupported character config file: {s}".format(asset_file))
-            assert False
+            print("Unsupported character config file: {}".format(asset_file))
+            assert(False)
 
         return
 
@@ -235,9 +247,9 @@ class Humanoid(BaseTask):
         self._termination_heights[head_id] = max(head_term_height, self._termination_heights[head_id])
 
         asset_file = self.cfg["env"]["asset"]["assetFileName"]
-        if asset_file == "mjcf/amp_humanoid_sword_shield.xml":
-            left_arm_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], "left_lower_arm")
-            self._termination_heights[left_arm_id] = max(shield_term_height, self._termination_heights[left_arm_id])
+        if (asset_file == "mjcf/amp_humanoid_sword_shield.xml"):
+            left_hand_id = self.gym.find_actor_rigid_body_handle(self.envs[0], self.humanoid_handles[0], "left_hand")
+            self._termination_heights[left_hand_id] = max(shield_term_height, self._termination_heights[left_hand_id])
         
         self._termination_heights = to_torch(self._termination_heights, device=self.device)
         return
@@ -257,6 +269,7 @@ class Humanoid(BaseTask):
         asset_options.angular_damping = 0.01
         asset_options.max_angular_velocity = 100.0
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_NONE
+        #asset_options.fix_base_link = True
         humanoid_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
         actuator_props = self.gym.get_asset_actuator_properties(humanoid_asset)
         motor_efforts = [prop.motor_effort for prop in actuator_props]
@@ -300,7 +313,7 @@ class Humanoid(BaseTask):
         self.dof_limits_lower = to_torch(self.dof_limits_lower, device=self.device)
         self.dof_limits_upper = to_torch(self.dof_limits_upper, device=self.device)
 
-        if self._pd_control:
+        if (self._pd_control):
             self._build_pd_action_offset_scale()
 
         return
@@ -311,6 +324,7 @@ class Humanoid(BaseTask):
         segmentation_id = 0
 
         start_pose = gymapi.Transform()
+        asset_file = self.cfg["env"]["asset"]["assetFileName"]
         char_h = 0.89
 
         start_pose.p = gymapi.Vec3(*get_axis_params(char_h, self.up_axis_idx))
@@ -323,7 +337,7 @@ class Humanoid(BaseTask):
         for j in range(self.num_bodies):
             self.gym.set_rigid_body_color(env_ptr, humanoid_handle, j, gymapi.MESH_VISUAL, gymapi.Vec3(0.54, 0.85, 0.2))
 
-        if self._pd_control:
+        if (self._pd_control):
             dof_prop = self.gym.get_asset_dof_properties(humanoid_asset)
             dof_prop["driveMode"] = gymapi.DOF_MODE_POS
             self.gym.set_actor_dof_properties(env_ptr, humanoid_handle, dof_prop)
@@ -376,9 +390,9 @@ class Humanoid(BaseTask):
         return
 
     def _get_humanoid_collision_filter(self):
-        return 0
+        return -1
 
-    def _compute_reward(self, actions):
+    def _compute_reward(self):
         self.rew_buf[:] = compute_humanoid_reward(self.obs_buf)
         return
 
@@ -417,14 +431,17 @@ class Humanoid(BaseTask):
             body_rot = self._rigid_body_rot
             body_vel = self._rigid_body_vel
             body_ang_vel = self._rigid_body_ang_vel
+            dof_pos = self._dof_pos
+            dof_vel = self._dof_vel
         else:
             body_pos = self._rigid_body_pos[env_ids]
             body_rot = self._rigid_body_rot[env_ids]
             body_vel = self._rigid_body_vel[env_ids]
             body_ang_vel = self._rigid_body_ang_vel[env_ids]
-        
-        obs = compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, self._local_root_obs,
-                                                self._root_height_obs)
+            dof_pos = self._dof_pos[env_ids]
+            dof_vel = self._dof_vel[env_ids]
+        obs = compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, dof_pos, dof_vel,
+                                                self._local_root_obs, self._root_height_obs, self._dof_obs_size, self._dof_offsets)
         return obs
 
     def _reset_actors(self, env_ids):
@@ -434,17 +451,13 @@ class Humanoid(BaseTask):
         return
 
     def pre_physics_step(self, actions):
-        self.actions = actions.to(self.device).clone()
-        if self._pd_control:
-            pd_tar = self._action_to_pd_targets(self.actions)
-            pd_tar_tensor = gymtorch.unwrap_tensor(pd_tar)
-            self.gym.set_dof_position_target_tensor(self.sim, pd_tar_tensor)
-        else:
-            forces = self.actions * self.motor_efforts.unsqueeze(0) * self.power_scale
-            force_tensor = gymtorch.unwrap_tensor(forces)
-            self.gym.set_dof_actuation_force_tensor(self.sim, force_tensor)
-
-        self._prev_root_pos[:] = self._humanoid_root_states[..., 0:3]
+        actions = actions + self._dof_pos
+        pd_tar = actions
+        pd_tar_tensor = gymtorch.unwrap_tensor(pd_tar)
+        self.gym.set_dof_position_target_tensor_indexed(self.sim,
+                                                        pd_tar_tensor,
+                                                        gymtorch.unwrap_tensor(self._humanoid_actor_ids),
+                                                        len(self._humanoid_actor_ids))
 
         return
 
@@ -453,7 +466,7 @@ class Humanoid(BaseTask):
 
         self._refresh_sim_tensors()
         self._compute_observations()
-        self._compute_reward(self.actions)
+        self._compute_reward()
         self._compute_reset()
         
         self.extras["terminate"] = self._terminate_buf
@@ -562,6 +575,7 @@ def dof_to_obs(pose, dof_obs_size, dof_offsets):
             axis = torch.tensor([0.0, 1.0, 0.0], dtype=joint_pose.dtype, device=pose.device)
             joint_pose_q = quat_from_angle_axis(joint_pose[..., 0], axis)
         else:
+            joint_pose_q = None
             assert False, "Unsupported joint type"
 
         joint_dof_obs = torch_utils.quat_to_tan_norm(joint_pose_q)
@@ -609,8 +623,9 @@ def compute_humanoid_observations(root_pos, root_rot, root_vel, root_ang_vel, do
     return obs
 
 @torch.jit.script
-def compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, local_root_obs, root_height_obs):
-    # type: (Tensor, Tensor, Tensor, Tensor, bool, bool) -> Tensor
+def compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel, dof_pos, dof_vel, local_root_obs, root_height_obs,
+                                      dof_obs_size, dof_offsets):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, bool, bool, int, List[int]) -> Tensor
     root_pos = body_pos[:, 0, :]
     root_rot = body_rot[:, 0, :]
 
@@ -638,10 +653,6 @@ def compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel
     flat_local_body_rot = quat_mul(flat_heading_rot, flat_body_rot)
     flat_local_body_rot_obs = torch_utils.quat_to_tan_norm(flat_local_body_rot)
     local_body_rot_obs = flat_local_body_rot_obs.reshape(body_rot.shape[0], body_rot.shape[1] * flat_local_body_rot_obs.shape[1])
-    
-    if not local_root_obs:
-        root_rot_obs = torch_utils.quat_to_tan_norm(root_rot)
-        local_body_rot_obs[..., 0:6] = root_rot_obs
 
     flat_body_vel = body_vel.reshape(body_vel.shape[0] * body_vel.shape[1], body_vel.shape[2])
     flat_local_body_vel = quat_rotate(flat_heading_rot, flat_body_vel)
@@ -650,8 +661,8 @@ def compute_humanoid_observations_max(body_pos, body_rot, body_vel, body_ang_vel
     flat_body_ang_vel = body_ang_vel.reshape(body_ang_vel.shape[0] * body_ang_vel.shape[1], body_ang_vel.shape[2])
     flat_local_body_ang_vel = quat_rotate(flat_heading_rot, flat_body_ang_vel)
     local_body_ang_vel = flat_local_body_ang_vel.reshape(body_ang_vel.shape[0], body_ang_vel.shape[1] * body_ang_vel.shape[2])
-    
-    obs = torch.cat((root_h_obs, local_body_pos, local_body_rot_obs, local_body_vel, local_body_ang_vel), dim=-1)
+    dof_obs = dof_to_obs(dof_pos, dof_obs_size, dof_offsets)
+    obs = torch.cat((root_h_obs, local_body_pos, local_body_rot_obs, local_body_vel, local_body_ang_vel, dof_obs, dof_vel), dim=-1)
     return obs
 
 
