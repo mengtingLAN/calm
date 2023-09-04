@@ -531,7 +531,6 @@ class HumanoidNCP(Humanoid):
                                                    root_pos_kin, root_rot_kin, local_root_vel_kin,
                                                    local_root_ang_vel_kin, dof_obs_kin, dof_vel_kin,
                                                    self._flat_local_key_pos_kin[:])
-        reward[:] = 0.0
         # frame_idx = self._motion_lib.get_motion_idx(self._motion_ids, self._time)
         # env_idx = reward > self.max_reward[frame_idx]
         # better_frame_idx = frame_idx[env_idx]
