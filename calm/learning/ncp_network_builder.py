@@ -54,7 +54,7 @@ class NCPBuilder(network_builder.A2CBuilder):
             ob_space = kwargs.get('input_shape')
             self.value_size = kwargs.get('value_size', 1)
             self.num_seqs = kwargs.get('num_seqs', 1)
-            actions_log_std_init = torch.tensor(0.0)
+            actions_log_std_init = torch.tensor(-2.0)
             self.actions_log_std = nn.Parameter(torch.ones(actions_dim) * actions_log_std_init, requires_grad=True)
 
             prop_dim = ob_space.spaces['prop'].shape[0]
@@ -184,6 +184,7 @@ class PiNet(nn.Module):
         self.encoder = Encoder(nc)
         self.nc = nc
         self.embeddings = nn.Embedding(nc.num_embeddings, nc.z_len // nc.code_num)
+        self.embeddings.weight.data.uniform_(-3.0 / nc.num_embeddings, 3.0 / nc.num_embeddings)
         self.num_embeddings = nc.num_embeddings
 
         self.llc = LLC(nc)

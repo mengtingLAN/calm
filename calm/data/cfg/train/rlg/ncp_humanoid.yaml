@@ -34,7 +34,7 @@ params:
     normalize_advantage: True
     gamma: 0.95
     tau: 0.95
-    learning_rate: 1e-4
+    learning_rate: 5e-5
     lr_schedule: constant
     score_to_win: 20000
     max_epochs: 100000
@@ -47,14 +47,13 @@ params:
     truncate_grads: True
     e_clip: 0.1
     horizon_length: 32
-    minibatch_size: 16384
+    minibatch_size: 4096
     mini_epochs: 6
     critic_coef: 1
     clip_value: False
     seq_len: 4
     bounds_loss_coef: 0
-    e_latent_loss_coef: 0.25
-    q_latent_loss_coef: 1.0
+    e_latent_loss_coef: 1.0
+    q_latent_loss_coef: 0.25
     rms_loss_coef: 1.0
-
-
+    device: cuda:0

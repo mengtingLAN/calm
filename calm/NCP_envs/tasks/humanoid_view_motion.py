@@ -30,7 +30,7 @@ import torch
 import numpy as np
 from gym import spaces
 from isaacgym import gymtorch
-from utils.motion_lib import MotionLib
+from utils.ncp_motion_lib import MotionLib
 from NCP_envs.tasks.humanoid_ncp import HumanoidNCP
 from collections import OrderedDict
 

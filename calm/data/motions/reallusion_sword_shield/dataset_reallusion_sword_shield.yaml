@@ -113,16 +113,6 @@ motions:
     weight: 0.03105590
   - file: "RL_Avatar_TurnRight180_Motion.npy"
     weight: 0.03105590
-  - file: "RL_Avatar_Fall_Backward_Motion.npy"
-    weight: 0.00869565
-  - file: "RL_Avatar_Fall_Left_Motion.npy"
-    weight: 0.00869565
-  - file: "RL_Avatar_Fall_Right_Motion.npy"
-    weight: 0.00869565
-  - file: "RL_Avatar_Fall_SpinLeft_Motion.npy"
-    weight: 0.00869565
-  - file: "RL_Avatar_Fall_SpinRight_Motion.npy"
-    weight: 0.00869565
   - file: "RL_Avatar_Idle_Alert(0)_Motion.npy"
     weight: 0.00434783
   - file: "RL_Avatar_Idle_Alert_Motion.npy"
