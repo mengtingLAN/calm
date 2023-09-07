@@ -30,6 +30,7 @@ from rl_games.algos_torch import network_builder
 
 import torch
 import torch.nn as nn
+import numpy as np
 
 from learning import amp_network_builder
 
@@ -66,6 +67,7 @@ class NCPBuilder(network_builder.A2CBuilder):
             params['future_dim'] = future_dim
             params['actions_dim'] = actions_dim
             nc = TrackingZConfig(**params)
+            self.is_VQ = nc.is_VQ
             self.value_net = ValueNet(nc)
             self.pi_net = PiNet(nc)
 
@@ -82,21 +84,38 @@ class NCPBuilder(network_builder.A2CBuilder):
             prop_rms = prop_rms.clamp(-5.0, 5.0)
             future_rms = future_rms.clamp(-5.0, 5.0)
 
-            action_mean, quantized, encoder_z = self.pi_net(prop_rms, future_rms)
-            actor_outputs = (action_mean, self.actions_log_std)
-            value = self.value_net(prop_rms, future_rms)
-            states = obs_dict.get('rnn_states', None)
+            if self.is_VQ:
+                action_mean, quantized, encoder_z = self.pi_net(prop_rms, future_rms)
+                actor_outputs = (action_mean, self.actions_log_std)
+                value = self.value_net(prop_rms, future_rms)
+                states = obs_dict.get('rnn_states', None)
 
-            if is_train:
-                rms_loss = torch.mean(prop_rms_loss, dim=(0, 1)) + torch.mean(future_rms_loss, dim=(0, 1))
-                e_latent_loss = torch.mean((quantized.detach() - encoder_z) ** 2, dim=(0, 1))
-                q_latent_loss = torch.mean((quantized - encoder_z.detach()) ** 2, dim=(0, 1))
+                if is_train:
+                    rms_loss = torch.mean(prop_rms_loss, dim=(0, 1)) + torch.mean(future_rms_loss, dim=(0, 1))
+                    e_latent_loss = torch.mean((quantized.detach() - encoder_z) ** 2, dim=(0, 1))
+                    q_latent_loss = torch.mean((quantized - encoder_z.detach()) ** 2, dim=(0, 1))
+                else:
+                    rms_loss = None
+                    e_latent_loss = None
+                    q_latent_loss = None
+
+                output = actor_outputs + (value, states) + (rms_loss, e_latent_loss, q_latent_loss)
             else:
-                rms_loss = None
-                e_latent_loss = None
-                q_latent_loss = None
+                action_mean = self.pi_net(prop_rms, future_rms)
+                actor_outputs = (action_mean, self.actions_log_std)
+                value = self.value_net(prop_rms, future_rms)
+                states = obs_dict.get('rnn_states', None)
 
-            output = actor_outputs + (value, states) + (rms_loss, e_latent_loss, q_latent_loss)
+                if is_train:
+                    rms_loss = torch.mean(prop_rms_loss, dim=(0, 1)) + torch.mean(future_rms_loss, dim=(0, 1))
+                    e_latent_loss = torch.zeros_like(rms_loss)
+                    q_latent_loss = torch.zeros_like(rms_loss)
+                else:
+                    rms_loss = None
+                    e_latent_loss = None
+                    q_latent_loss = None
+
+                output = actor_outputs + (value, states) + (rms_loss, e_latent_loss, q_latent_loss)
 
             return output
 
@@ -131,6 +150,11 @@ class ValueNet(nn.Module):
             nn.ReLU(),
             nn.Linear(nc.embed_dim // 4, 1)
         )
+        for layer in self.mlp:
+            if isinstance(layer, nn.Linear):
+                _normc_initializer(layer.weight)
+                _normc_initializer(layer.bias)
+
 
     def forward(self, prop, future):
         embed = torch.hstack((prop, future))
@@ -166,15 +190,18 @@ class LLC(nn.Module):
             nn.Linear(nc.embed_dim, nc.embed_dim),
             nn.ReLU(),
             nn.Linear(nc.embed_dim, nc.embed_dim // 2),
-            nn.ReLU(),
-            nn.Linear(nc.embed_dim // 2, nc.actions_dim)
+            nn.ReLU()
             # nn.Linear(nc.embed_dim // 2, nc.ac_space['A_LLC'].shape[0])
         )
+        self.output_layer = nn.Linear(nc.embed_dim // 2, nc.actions_dim)
+        _normc_initializer(self.output_layer.weight, 0.01)
+
 
     def forward(self, prop, z):
         z = z.squeeze()
         embed = torch.hstack((prop, z))
-        out = self.mlp(embed)
+        mlp_out = self.mlp(embed)
+        out = self.output_layer(mlp_out)
         return out
 
 
@@ -183,23 +210,27 @@ class PiNet(nn.Module):
         super(PiNet, self).__init__()
         self.encoder = Encoder(nc)
         self.nc = nc
-        self.embeddings = nn.Embedding(nc.num_embeddings, nc.z_len // nc.code_num)
-        self.embeddings.weight.data.uniform_(-3.0 / nc.num_embeddings, 3.0 / nc.num_embeddings)
-        self.num_embeddings = nc.num_embeddings
+        if self.nc.is_VQ:
+            self.embeddings = nn.Embedding(nc.num_embeddings, nc.z_len // nc.code_num)
+            self.embeddings.weight.data.uniform_(-3.0 / nc.num_embeddings, 3.0 / nc.num_embeddings)
+            self.num_embeddings = nc.num_embeddings
 
         self.llc = LLC(nc)
 
     def forward(self, prop, future):
         encoder_z = self.encoder(prop, future)
-        flat_z = encoder_z.view(encoder_z.shape[0] * self.nc.code_num, self.nc.z_len // self.nc.code_num)
-        encoding_indices = self.get_code_indices(flat_z)
-        # print(encoding_indices)
-        # encoding_indices = torch.randint(self.num_embeddings, size=encoding_indices.shape)
-        quantized = self.quantize(encoding_indices)
-        quantized = quantized.view_as(encoder_z)  # [B, H, W, C]
-        z_curr = encoder_z + (quantized - encoder_z).detach()
-        out = self.llc(prop, z_curr)
-        return out, quantized, encoder_z
+        if self.nc.is_VQ:
+            flat_z = encoder_z.view(encoder_z.shape[0] * self.nc.code_num, self.nc.z_len // self.nc.code_num)
+            encoding_indices = self.get_code_indices(flat_z)
+            quantized = self.quantize(encoding_indices)
+            quantized = quantized.view_as(encoder_z)  # [B, H, W, C]
+            z_curr = encoder_z + (quantized - encoder_z).detach()
+            out = self.llc(prop, z_curr)
+            return out, quantized, encoder_z
+        else:
+            out = self.llc(prop, encoder_z)
+            return out
+
 
 
     def reset(self):
@@ -247,3 +278,12 @@ class TrackingZConfig(object):
         # allow partially overwriting
         for k, v in kwargs.items():
             self.__dict__[k] = v
+
+
+def _normc_initializer(param, std=1.0):
+    shape = param.data.shape
+    out = np.random.randn(*shape).astype(np.float32)
+    out *= std / np.sqrt(np.square(out).sum(axis=0, keepdims=True))
+    out = torch.from_numpy(out)
+    param.data.copy_(out)
+    return

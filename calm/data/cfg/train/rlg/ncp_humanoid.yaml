@@ -11,6 +11,7 @@ params:
     name: ncp
     separate: True
 
+    is_VQ: True
     rms_momentum: 0.0001
     embed_dim: 1024
     z_len: 64
@@ -50,10 +51,10 @@ params:
     minibatch_size: 4096
     mini_epochs: 6
     critic_coef: 1
-    clip_value: False
+    clip_value: True
     seq_len: 4
     bounds_loss_coef: 0
-    e_latent_loss_coef: 1.0
-    q_latent_loss_coef: 0.25
+    e_latent_loss_coef: 0.25
+    q_latent_loss_coef: 1.0
     rms_loss_coef: 1.0
-    device: cuda:0
+    device: cuda:2

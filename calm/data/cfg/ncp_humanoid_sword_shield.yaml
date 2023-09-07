@@ -2,7 +2,7 @@
 env:
   numEnvs: 16384
   envSpacing: 5
-  episodeLength: 300
+  episodeLength: 5000
   isFlagrun: False
   enableDebugVis: False
   motion_index: None
