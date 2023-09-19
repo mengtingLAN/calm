@@ -47,7 +47,7 @@ class HumanoidViewMotion(HumanoidAMP):
                          device_type=device_type,
                          device_id=device_id,
                          headless=headless)
-        
+
         num_motions = self._motion_lib.num_motions()
         self._motion_ids = torch.arange(self.num_envs, device=self.device, dtype=torch.long)
         self._motion_ids = torch.remainder(self._motion_ids, num_motions)
@@ -66,7 +66,7 @@ class HumanoidViewMotion(HumanoidAMP):
         super().post_physics_step()
         self._motion_sync()
         return
-    
+
     def _get_humanoid_collision_filter(self):
         return 1  # disable self collisions
 
@@ -77,18 +77,18 @@ class HumanoidViewMotion(HumanoidAMP):
 
         root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos \
             = self._motion_lib.get_motion_state(motion_ids, motion_times)
-        
+
         root_vel = torch.zeros_like(root_vel)
         root_ang_vel = torch.zeros_like(root_ang_vel)
         dof_vel = torch.zeros_like(dof_vel)
 
         env_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
-        self._set_env_state(env_ids=env_ids, 
-                            root_pos=root_pos, 
-                            root_rot=root_rot, 
-                            dof_pos=dof_pos, 
-                            root_vel=root_vel, 
-                            root_ang_vel=root_ang_vel, 
+        self._set_env_state(env_ids=env_ids,
+                            root_pos=root_pos,
+                            root_rot=root_rot,
+                            dof_pos=dof_pos,
+                            root_vel=root_vel,
+                            root_ang_vel=root_ang_vel,
                             dof_vel=dof_vel)
 
         env_ids_int32 = self._humanoid_actor_ids[env_ids]
@@ -102,7 +102,8 @@ class HumanoidViewMotion(HumanoidAMP):
 
     def _compute_reset(self):
         motion_lengths = self._motion_lib.get_motion_length(self._motion_ids)
-        self.reset_buf[:], self._terminate_buf[:] = compute_view_motion_reset(self.reset_buf, motion_lengths, self.progress_buf, self._motion_dt)
+        self.reset_buf[:], self._terminate_buf[:] = compute_view_motion_reset(self.reset_buf, motion_lengths,
+                                                                              self.progress_buf, self._motion_dt)
         return
 
     def _reset_actors(self, env_ids):
@@ -111,7 +112,7 @@ class HumanoidViewMotion(HumanoidAMP):
     def _reset_env_tensors(self, env_ids):
         num_motions = self._motion_lib.num_motions()
         self._motion_ids[env_ids] = torch.remainder(self._motion_ids[env_ids] + self.num_envs, num_motions)
-        
+
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self._terminate_buf[env_ids] = 0

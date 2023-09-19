@@ -1,6 +1,6 @@
 # if given, will override the device setting in gym. 
 env: 
-  numEnvs: 4096
+  numEnvs: 256
   envSpacing: 5
   episodeLength: 300
   isFlagrun: False
@@ -24,7 +24,7 @@ env:
   enableTaskObs: True
   
   asset:
-    assetRoot: "calm/data/assets"
+    assetRoot: "data/assets"
     assetFileName: "mjcf/amp_humanoid_sword_shield.xml"
 
   plane:

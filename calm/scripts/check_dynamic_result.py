@@ -8,7 +8,7 @@ print(os.getcwd())
 
 def main():
     print(os.getcwd())
-    data_path = '../output/dynamic_log/c6930a92_dynamic_sample_result.csv'
+    data_path = '../output/dynamic_log/18-17-35-35_dynamic_sample_result.csv'
     data = np.array(pd.read_csv(data_path))
     _, avg_reward, sample_times = np.split(data, 3, axis=1)
     print(np.argsort(avg_reward)[-1, :20])

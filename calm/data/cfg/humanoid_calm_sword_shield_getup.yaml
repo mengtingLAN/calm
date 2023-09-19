@@ -16,7 +16,7 @@ env:
   recoveryEpisodeProb: 0.2
   recoverySteps: 60
   fallInitProb: 0.1
-  
+
   localRootObs: True
   keyBodies: ["right_hand", "left_hand", "right_foot", "left_foot", "sword", "shield"]
   contactBodies: ["right_foot", "left_foot"]

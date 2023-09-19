@@ -11,11 +11,11 @@ params:
     name: ncp
     separate: True
 
-    is_VQ: True
+    is_VQ: False
     rms_momentum: 0.0001
     embed_dim: 1024
     z_len: 64
-    num_embeddings: 512
+    num_embeddings: 256
     code_num: 1
 
 
@@ -35,7 +35,7 @@ params:
     normalize_advantage: True
     gamma: 0.95
     tau: 0.95
-    learning_rate: 5e-5
+    learning_rate: 2e-5
     lr_schedule: constant
     score_to_win: 20000
     max_epochs: 100000
@@ -48,7 +48,7 @@ params:
     truncate_grads: True
     e_clip: 0.1
     horizon_length: 32
-    minibatch_size: 4096
+    minibatch_size: 16384
     mini_epochs: 6
     critic_coef: 1
     clip_value: True
@@ -57,4 +57,4 @@ params:
     e_latent_loss_coef: 0.25
     q_latent_loss_coef: 1.0
     rms_loss_coef: 1.0
-    device: cuda:2
+    device: cuda:0

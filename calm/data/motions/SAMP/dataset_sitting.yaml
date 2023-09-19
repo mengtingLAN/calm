@@ -1,0 +1,42 @@
+motions:
+  - file: "chair_mo.npy"
+    weight: 0.05
+  - file: "chair_mo001.npy"
+    weight: 0.05
+  - file: "chair_mo002.npy"
+    weight: 0.05
+  - file: "chair_mo003.npy"
+    weight: 0.05
+  - file: "chair_mo004.npy"
+    weight: 0.05
+  - file: "chair_mo005.npy"
+    weight: 0.05
+  - file: "chair_mo006.npy"
+    weight: 0.05
+  - file: "chair_mo007.npy"
+    weight: 0.05
+  - file: "chair_mo008.npy"
+    weight: 0.05
+  - file: "chair_mo009.npy"
+    weight: 0.05
+  - file: "chair_mo010.npy"
+    weight: 0.05
+  - file: "chair_mo011.npy"
+    weight: 0.05
+  - file: "chair_mo012.npy"
+    weight: 0.05
+  - file: "chair_mo013.npy"
+    weight: 0.05
+  - file: "chair_mo014.npy"
+    weight: 0.05
+  - file: "chair_mo015.npy"
+    weight: 0.05
+  - file: "chair_mo016.npy"
+    weight: 0.05
+  - file: "chair_mo017.npy"
+    weight: 0.05
+  - file: "chair_mo018.npy"
+    weight: 0.05
+  - file: "chair_mo019.npy"
+    weight: 0.05
+

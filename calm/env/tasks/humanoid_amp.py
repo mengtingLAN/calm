@@ -52,7 +52,7 @@ class HumanoidAMP(Humanoid):
         self._num_amp_obs_enc_steps = cfg["env"].get("numAMPEncObsSteps", self._num_amp_obs_steps)
 
         self._equal_motion_weights = cfg["env"].get("equal_motion_weights", False)
-        assert(self._num_amp_obs_steps >= 2)
+        assert (self._num_amp_obs_steps >= 2)
 
         self._reset_default_env_ids = []
         self._reset_ref_env_ids = []
@@ -67,7 +67,8 @@ class HumanoidAMP(Humanoid):
         motion_file = cfg['env']['motion_file']
         self._load_motion(motion_file)
 
-        self._amp_obs_buf = torch.zeros((self.num_envs, self._num_amp_obs_steps, self._num_amp_obs_per_step), device=self.device, dtype=torch.float)
+        self._amp_obs_buf = torch.zeros((self.num_envs, self._num_amp_obs_steps, self._num_amp_obs_per_step),
+                                        device=self.device, dtype=torch.float)
         self._curr_amp_obs_buf = self._amp_obs_buf[:, 0]
         self._hist_amp_obs_buf = self._amp_obs_buf[:, 1:]
 
@@ -99,7 +100,8 @@ class HumanoidAMP(Humanoid):
         motion_times0 = self._motion_lib.sample_time(motion_ids, truncate_time=truncate_time)
         motion_times0 += truncate_time
 
-        amp_obs_demo_flat = self.build_amp_obs_demo(motion_ids, motion_times0, self._num_amp_obs_steps).to(self.device).view(-1, self.get_num_amp_obs())
+        amp_obs_demo_flat = self.build_amp_obs_demo(motion_ids, motion_times0, self._num_amp_obs_steps).to(
+            self.device).view(-1, self.get_num_amp_obs())
 
         return amp_obs_demo_flat
 
@@ -134,11 +136,16 @@ class HumanoidAMP(Humanoid):
         enc_motion_times += torch.clip(self._motion_lib._motion_lengths[motion_ids], max=enc_window_size)
 
         # sub-window-size is for the amp_obs contained within the enc-amp-obs. make sure we sample only within the valid portion of the motion
-        sub_window_size = torch.clip(self._motion_lib._motion_lengths[motion_ids], max=enc_window_size) - self.dt * self._num_amp_obs_steps
+        sub_window_size = torch.clip(self._motion_lib._motion_lengths[motion_ids],
+                                     max=enc_window_size) - self.dt * self._num_amp_obs_steps
         motion_times = enc_motion_times - torch.rand(enc_motion_times.shape, device=self.device) * sub_window_size
 
-        enc_amp_obs_demo = self.build_amp_obs_demo(motion_ids, enc_motion_times, self._num_amp_obs_enc_steps).view(-1, self._num_amp_obs_enc_steps, self._num_amp_obs_per_step)
-        amp_obs_demo = self.build_amp_obs_demo(motion_ids, motion_times, self._num_amp_obs_steps).view(-1, self._num_amp_obs_steps, self._num_amp_obs_per_step)
+        enc_amp_obs_demo = self.build_amp_obs_demo(motion_ids, enc_motion_times, self._num_amp_obs_enc_steps).view(-1,
+                                                                                                                   self._num_amp_obs_enc_steps,
+                                                                                                                   self._num_amp_obs_per_step)
+        amp_obs_demo = self.build_amp_obs_demo(motion_ids, motion_times, self._num_amp_obs_steps).view(-1,
+                                                                                                       self._num_amp_obs_steps,
+                                                                                                       self._num_amp_obs_per_step)
 
         enc_amp_obs_demo_flat = enc_amp_obs_demo.to(self.device).view(-1, self.get_num_enc_amp_obs())
         amp_obs_demo_flat = amp_obs_demo.to(self.device).view(-1, self.get_num_amp_obs())
@@ -161,7 +168,9 @@ class HumanoidAMP(Humanoid):
 
         motion_times = torch.cat((motion_times0, motion_times1), dim=0)
 
-        amp_obs_demo = self.build_amp_obs_demo(cat_motion_ids, motion_times, self._num_amp_obs_enc_steps).view(-1, self._num_amp_obs_enc_steps, self._num_amp_obs_per_step)
+        amp_obs_demo = self.build_amp_obs_demo(cat_motion_ids, motion_times, self._num_amp_obs_enc_steps).view(-1,
+                                                                                                               self._num_amp_obs_enc_steps,
+                                                                                                               self._num_amp_obs_per_step)
         amp_obs_demo0, amp_obs_demo1 = torch.split(amp_obs_demo, num_samples)
 
         amp_obs_demo0_flat = amp_obs_demo0.to(self.device).view(-1, self.get_num_enc_amp_obs())
@@ -189,8 +198,10 @@ class HumanoidAMP(Humanoid):
         return amp_obs_demo
 
     def _build_amp_obs_demo_buf(self, num_samples):
-        self._amp_obs_demo_buf = torch.zeros((num_samples, self._num_amp_obs_steps, self._num_amp_obs_per_step), device=self.device, dtype=torch.float32)
-        self._enc_amp_obs_demo_buf = torch.zeros((num_samples, self._num_amp_obs_enc_steps, self._num_amp_obs_per_step), device=self.device, dtype=torch.float32)
+        self._amp_obs_demo_buf = torch.zeros((num_samples, self._num_amp_obs_steps, self._num_amp_obs_per_step),
+                                             device=self.device, dtype=torch.float32)
+        self._enc_amp_obs_demo_buf = torch.zeros((num_samples, self._num_amp_obs_enc_steps, self._num_amp_obs_per_step),
+                                                 device=self.device, dtype=torch.float32)
         return
 
     def _setup_character_props(self, key_bodies):
@@ -200,9 +211,9 @@ class HumanoidAMP(Humanoid):
         num_key_bodies = len(key_bodies)
 
         if asset_file == "mjcf/amp_humanoid.xml":
-            self._num_amp_obs_per_step = 13 + self._dof_obs_size + 28 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
+            self._num_amp_obs_per_step = 13 + self._dof_obs_size + 28 + 3 * num_key_bodies  # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
         elif asset_file == "mjcf/amp_humanoid_sword_shield.xml":
-            self._num_amp_obs_per_step = 13 + self._dof_obs_size + 31 + 3 * num_key_bodies # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
+            self._num_amp_obs_per_step = 13 + self._dof_obs_size + 31 + 3 * num_key_bodies  # [root_h, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos]
         else:
             print("Unsupported character config file: {s}".format(asset_file))
             assert False
@@ -210,7 +221,7 @@ class HumanoidAMP(Humanoid):
         return
 
     def _load_motion(self, motion_file):
-        assert(self._dof_offsets[-1] == self.num_dof)
+        assert (self._dof_offsets[-1] == self.num_dof)
         self._motion_lib = MotionLib(motion_file=motion_file,
                                      dof_body_ids=self._dof_body_ids,
                                      dof_offsets=self._dof_offsets,
@@ -218,7 +229,7 @@ class HumanoidAMP(Humanoid):
                                      equal_motion_weights=self._equal_motion_weights,
                                      device=self.device)
         return
-    
+
     def _reset_envs(self, env_ids):
         self._reset_default_env_ids = []
         self._reset_ref_env_ids = []
@@ -239,7 +250,7 @@ class HumanoidAMP(Humanoid):
         else:
             assert False, "Unsupported state initialization strategy: {:s}".format(str(self._state_init))
         return
-    
+
     def _reset_default(self, env_ids):
         self._humanoid_root_states[env_ids] = self._initial_humanoid_root_states[env_ids]
         self._dof_pos[env_ids] = self._initial_dof_pos[env_ids]
@@ -250,9 +261,9 @@ class HumanoidAMP(Humanoid):
     def _reset_ref_state_init(self, env_ids):
         num_envs = env_ids.shape[0]
         motion_ids = self._motion_lib.sample_motions(num_envs)
-        
+
         if (self._state_init == HumanoidAMP.StateInit.Random
-            or self._state_init == HumanoidAMP.StateInit.Hybrid):
+                or self._state_init == HumanoidAMP.StateInit.Hybrid):
             motion_times = self._motion_lib.sample_time(motion_ids)
         elif self._state_init == HumanoidAMP.StateInit.Start:
             motion_times = torch.zeros(num_envs, device=self.device)
@@ -301,7 +312,7 @@ class HumanoidAMP(Humanoid):
         if len(self._reset_ref_env_ids) > 0:
             self._init_amp_obs_ref(self._reset_ref_env_ids, self._reset_ref_motion_ids,
                                    self._reset_ref_motion_times)
-        
+
         return
 
     def _init_amp_obs_default(self, env_ids):
@@ -319,10 +330,10 @@ class HumanoidAMP(Humanoid):
         motion_ids = motion_ids.view(-1)
         motion_times = motion_times.view(-1)
         root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos \
-               = self._motion_lib.get_motion_state(motion_ids, motion_times)
-        amp_obs_demo = build_amp_observations(root_pos, root_rot, root_vel, root_ang_vel, 
-                                              dof_pos, dof_vel, key_pos, 
-                                              self._local_root_obs, self._root_height_obs, 
+            = self._motion_lib.get_motion_state(motion_ids, motion_times)
+        amp_obs_demo = build_amp_observations(root_pos, root_rot, root_vel, root_ang_vel,
+                                              dof_pos, dof_vel, key_pos,
+                                              self._local_root_obs, self._root_height_obs,
                                               self._dof_obs_size, self._dof_offsets)
         self._hist_amp_obs_buf[env_ids] = amp_obs_demo.view(self._hist_amp_obs_buf[env_ids].shape)
         return
@@ -335,7 +346,7 @@ class HumanoidAMP(Humanoid):
         self._humanoid_root_states[env_ids, 3:7] = root_rot
         self._humanoid_root_states[env_ids, 7:10] = root_vel
         self._humanoid_root_states[env_ids, 10:13] = root_ang_vel
-        
+
         self._dof_pos[env_ids] = dof_pos
         self._dof_vel[env_ids] = dof_vel
         return
@@ -357,7 +368,7 @@ class HumanoidAMP(Humanoid):
                                                                self._rigid_body_vel[:, 0, :],
                                                                self._rigid_body_ang_vel[:, 0, :],
                                                                self._dof_pos, self._dof_vel, key_body_pos,
-                                                               self._local_root_obs, self._root_height_obs, 
+                                                               self._local_root_obs, self._root_height_obs,
                                                                self._dof_obs_size, self._dof_offsets)
         else:
             self._curr_amp_obs_buf[env_ids] = build_amp_observations(self._rigid_body_pos[env_ids][:, 0, :],
@@ -376,7 +387,7 @@ class HumanoidAMP(Humanoid):
 #####################################################################
 
 @torch.jit.script
-def build_amp_observations(root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos, 
+def build_amp_observations(root_pos, root_rot, root_vel, root_ang_vel, dof_pos, dof_vel, key_body_pos,
                            local_root_obs, root_height_obs, dof_obs_size, dof_offsets):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, bool, bool, int, List[int]) -> Tensor
     root_h = root_pos[:, 2:3]
@@ -387,26 +398,29 @@ def build_amp_observations(root_pos, root_rot, root_vel, root_ang_vel, dof_pos, 
     else:
         root_rot_obs = root_rot
     root_rot_obs = torch_utils.quat_to_tan_norm(root_rot_obs)
-    
+
     if not root_height_obs:
         root_h_obs = torch.zeros_like(root_h)
     else:
         root_h_obs = root_h
-    
+
     local_root_vel = quat_rotate(heading_rot, root_vel)
     local_root_ang_vel = quat_rotate(heading_rot, root_ang_vel)
 
     root_pos_expand = root_pos.unsqueeze(-2)
     local_key_body_pos = key_body_pos - root_pos_expand
-    
+
     heading_rot_expand = heading_rot.unsqueeze(-2)
     heading_rot_expand = heading_rot_expand.repeat((1, local_key_body_pos.shape[1], 1))
-    flat_end_pos = local_key_body_pos.view(local_key_body_pos.shape[0] * local_key_body_pos.shape[1], local_key_body_pos.shape[2])
-    flat_heading_rot = heading_rot_expand.view(heading_rot_expand.shape[0] * heading_rot_expand.shape[1], 
+    flat_end_pos = local_key_body_pos.view(local_key_body_pos.shape[0] * local_key_body_pos.shape[1],
+                                           local_key_body_pos.shape[2])
+    flat_heading_rot = heading_rot_expand.view(heading_rot_expand.shape[0] * heading_rot_expand.shape[1],
                                                heading_rot_expand.shape[2])
     local_end_pos = quat_rotate(flat_heading_rot, flat_end_pos)
-    flat_local_key_pos = local_end_pos.view(local_key_body_pos.shape[0], local_key_body_pos.shape[1] * local_key_body_pos.shape[2])
-    
+    flat_local_key_pos = local_end_pos.view(local_key_body_pos.shape[0],
+                                            local_key_body_pos.shape[1] * local_key_body_pos.shape[2])
+
     dof_obs = dof_to_obs(dof_pos, dof_obs_size, dof_offsets)
-    obs = torch.cat((root_h_obs, root_rot_obs, local_root_vel, local_root_ang_vel, dof_obs, dof_vel, flat_local_key_pos), dim=-1)
+    obs = torch.cat(
+        (root_h_obs, root_rot_obs, local_root_vel, local_root_ang_vel, dof_obs, dof_vel, flat_local_key_pos), dim=-1)
     return obs

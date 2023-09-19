@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import torch
-
+import math
 from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 
@@ -36,7 +36,7 @@ import env.tasks.humanoid_amp_task as humanoid_amp_task
 from utils import torch_utils
 
 
-class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
+class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
         super().__init__(cfg=cfg,
                          sim_params=sim_params,
@@ -46,23 +46,28 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
                          headless=headless)
 
         self._tar_dist_min = 0.5
-        self._tar_dist_max = 10.0
-        self._near_dist = 1.5
-        self._near_prob = 0.5
+        self._tar_dist_max = 2.0
+        self._near_dist = 1
+        self._near_prob = 0.8
 
         self._prev_root_pos = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float)
 
-        strike_body_names = cfg["env"]["strikeBodyNames"]
-        self._strike_body_ids = self._build_strike_body_ids_tensor(self.envs[0], self.humanoid_handles[0],
-                                                                   strike_body_names)
+        sit_body_names = cfg["env"]["sitBodyNames"]
+        self._sit_body_ids = self._build_sit_body_ids_tensor(self.envs[0], self.humanoid_handles[0],
+                                                                   sit_body_names)
         self._build_target_tensors()
+        self.bbox_pos = torch.tensor(((-0.25, -0.241, 0), (0.222, -0.241, 0), (0.222, -0.241, 0.782),(-0.25, -0.241, 0.782),
+                             (-0.25, 0.242, 0), (0.222, 0.242, 0), (0.222, 0.242, 0.782), (-0.25, 0.242, 0.782)), device=self.device, dtype=torch.float)
+
+        self.sit_pos = torch.tensor((0.00005, 0.000434, 0.429), device=self.device, dtype=torch.float)
+
 
         return
 
     def get_task_obs_size(self):
         obs_size = 0
         if self._enable_task_obs:
-            obs_size = 15
+            obs_size = 29
         return obs_size
 
     def _create_envs(self, num_envs, spacing, num_per_row):
@@ -78,10 +83,11 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
         return
 
     def _load_target_asset(self):
-        asset_root = "data/assets/mjcf/"
-        asset_file = "strike_target.urdf"
+        asset_root = "data/assets/000_Chair/"
+        asset_file = "001_Chair.urdf"
 
         asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = True
         asset_options.angular_damping = 0.01
         asset_options.linear_damping = 0.01
         asset_options.max_angular_velocity = 100.0
@@ -97,7 +103,6 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
         segmentation_id = 0
 
         default_pose = gymapi.Transform()
-        default_pose.p.x = 1.0
 
         target_handle = self.gym.create_actor(env_ptr, self._target_asset, default_pose, "target", col_group,
                                               col_filter, segmentation_id)
@@ -105,7 +110,7 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
 
         return
 
-    def _build_strike_body_ids_tensor(self, env_ptr, actor_handle, body_names):
+    def _build_sit_body_ids_tensor(self, env_ptr, actor_handle, body_names):
         env_ptr = self.envs[0]
         actor_handle = self.humanoid_handles[0]
         body_ids = []
@@ -131,12 +136,7 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
 
         return
 
-    def _reset_actors(self, env_ids):
-        super()._reset_actors(env_ids)
-        self._reset_target(env_ids)
-        return
-
-    def _reset_target(self, env_ids):
+    def _reset_default(self, env_ids):
         n = len(env_ids)
 
         init_near = torch.rand([n], dtype=self._target_states.dtype,
@@ -147,19 +147,25 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
         rand_dist = (dist_max - self._tar_dist_min) * torch.rand([n], dtype=self._target_states.dtype,
                                                                  device=self._target_states.device) + self._tar_dist_min
 
-        rand_theta = 2 * np.pi * torch.rand([n], dtype=self._target_states.dtype, device=self._target_states.device)
-        self._target_states[env_ids, 0] = rand_dist * torch.cos(rand_theta) + self._humanoid_root_states[env_ids, 0]
-        self._target_states[env_ids, 1] = rand_dist * torch.sin(rand_theta) + self._humanoid_root_states[env_ids, 1]
-        self._target_states[env_ids, 2] = 0.9
+        rand_theta = np.pi * torch.rand([n], dtype=self._target_states.dtype, device=self._target_states.device) \
+                     + -0.5 * np.pi * torch.ones([n], dtype=self._target_states.dtype, device=self._target_states.device)
+        self._humanoid_root_states[env_ids, 0] = rand_dist * torch.cos(rand_theta) + self._target_states[env_ids, 0]
+        self._humanoid_root_states[env_ids, 1] = rand_dist * torch.sin(rand_theta) + self._target_states[env_ids, 1]
+        self._humanoid_root_states[env_ids, 2] = self._initial_humanoid_root_states[env_ids, 2]
 
         rand_rot_theta = 2 * np.pi * torch.rand([n], dtype=self._target_states.dtype, device=self._target_states.device)
         axis = torch.tensor([0.0, 0.0, 1.0], dtype=self._target_states.dtype, device=self._target_states.device)
         rand_rot = quat_from_angle_axis(rand_rot_theta, axis)
 
-        self._target_states[env_ids, 3:7] = rand_rot
-        self._target_states[env_ids, 7:10] = 0.0
-        self._target_states[env_ids, 10:13] = 0.0
+        self._humanoid_root_states[env_ids, 3:7] = rand_rot
+        self._humanoid_root_states[env_ids, 7:10] = self._initial_humanoid_root_states[env_ids, 7:10]
+        self._humanoid_root_states[env_ids, 10:13] = self._initial_humanoid_root_states[env_ids, 10:13]
+
+        self._dof_pos[env_ids] = self._initial_dof_pos[env_ids]
+        self._dof_vel[env_ids] = self._initial_dof_vel[env_ids]
+        self._reset_default_env_ids = env_ids
         return
+
 
     def _reset_env_tensors(self, env_ids):
         super()._reset_env_tensors(env_ids)
@@ -172,23 +178,19 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
     def _compute_task_obs(self, env_ids=None):
         if env_ids is None:
             root_states = self._humanoid_root_states
-            tar_states = self._target_states
         else:
             root_states = self._humanoid_root_states[env_ids]
-            tar_states = self._target_states[env_ids]
 
-        obs = compute_strike_observations(root_states, tar_states)
+        obs = compute_sit_observations(root_states, self.bbox_pos, self.sit_pos)
         return obs
 
     def _compute_reward(self, actions):
         tar_pos = self._target_states[..., 0:3]
-        tar_rot = self._target_states[..., 3:7]
         char_root_state = self._humanoid_root_states
-        strike_body_vel = self._rigid_body_vel[..., self._strike_body_ids[0], :]
 
-        self.rew_buf[:] = compute_strike_reward(tar_pos, tar_rot, char_root_state,
-                                                self._prev_root_pos, strike_body_vel,
-                                                self.dt, self._near_dist)
+        self.rew_buf[:] = compute_sit_reward(tar_pos, self.sit_pos, char_root_state,
+                                                self._prev_root_pos,
+                                                self.dt)
         return
 
     def _compute_reset(self):
@@ -196,7 +198,7 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
                                                                            self._contact_forces, self._contact_body_ids,
                                                                            self._rigid_body_pos,
                                                                            self._tar_contact_forces,
-                                                                           self._strike_body_ids,
+                                                                           self._sit_body_ids,
                                                                            self.max_episode_length,
                                                                            self._enable_early_termination,
                                                                            self._termination_heights)
@@ -224,47 +226,58 @@ class HumanoidStrike(humanoid_amp_task.HumanoidAMPTask):
 #####################################################################
 
 @torch.jit.script
-def compute_strike_observations(root_states, tar_states):
-    # type: (Tensor, Tensor) -> Tensor
+def compute_sit_observations(root_states, bbox_pos, sit_pos):
+    # facing direction; bbox; target position;All these
+    # goal features are recorded in the character’s local frame.
     root_pos = root_states[:, 0:3]
     root_rot = root_states[:, 3:7]
 
-    tar_pos = tar_states[:, 0:3]
-    tar_rot = tar_states[:, 3:7]
-    tar_vel = tar_states[:, 7:10]
-    tar_ang_vel = tar_states[:, 10:13]
-
     heading_rot = torch_utils.calc_heading_quat_inv(root_rot)
 
-    local_tar_pos = tar_pos - root_pos
-    local_tar_pos[..., -1] = tar_pos[..., -1]
-    local_tar_pos = quat_rotate(heading_rot, local_tar_pos)
-    local_tar_vel = quat_rotate(heading_rot, tar_vel)
-    local_tar_ang_vel = quat_rotate(heading_rot, tar_ang_vel)
+    facing_direction = torch.tensor((1.0, 0.0, 0.0), device=root_rot.device, dtype=torch.float)
+    facing_direction = facing_direction.repeat(root_rot.shape[0], 1)
+    local_facing_direction = quat_rotate(heading_rot, facing_direction)
 
-    local_tar_rot = quat_mul(heading_rot, tar_rot)
-    local_tar_rot_obs = torch_utils.quat_to_tan_norm(local_tar_rot)
+    bbox_pos = bbox_pos.unsqueeze(0).repeat(root_rot.shape[0], 1, 1)
+    local_bbox_pos = bbox_pos - root_pos.unsqueeze(1)
+    local_bbox_pos[..., -1] = bbox_pos[..., -1]
+    flat_local_bbox_pos = local_bbox_pos.view(local_bbox_pos.shape[0]*local_bbox_pos.shape[1], local_bbox_pos.shape[2])
+    tmp_heading_rot = heading_rot.unsqueeze(1).repeat(1, bbox_pos.shape[1], 1)
+    tmp_heading_rot = tmp_heading_rot.view(tmp_heading_rot.shape[0]*tmp_heading_rot.shape[1], tmp_heading_rot.shape[2])
+    flat_local_bbox_pos = quat_rotate(tmp_heading_rot, flat_local_bbox_pos)
+    local_bbox_pos = flat_local_bbox_pos.view(local_bbox_pos.shape[0], local_bbox_pos.shape[1] * local_bbox_pos.shape[2])
 
-    obs = torch.cat([local_tar_pos, local_tar_rot_obs, local_tar_vel, local_tar_ang_vel], dim=-1)
+    sit_pos = sit_pos.repeat(root_rot.shape[0], 1)
+    local_sit_pos = sit_pos - root_pos
+    local_sit_pos[..., -1] = sit_pos[..., -1]
+    local_sit_pos = quat_rotate(heading_rot, local_sit_pos)
+
+    obs = torch.cat([local_facing_direction[:, 0:2], local_bbox_pos, local_sit_pos], dim=-1)
     return obs
 
 
 @torch.jit.script
-def compute_strike_reward(tar_pos, tar_rot, root_state, prev_root_pos, strike_body_vel, dt, near_dist):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float, float) -> Tensor
-    tar_speed = 1.0
-    vel_err_scale = 4.0
+def compute_sit_reward(tar_pos, tar_sit_pos, root_state, prev_root_pos, dt):
+    # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+    tar_speed = 1.5
+    vel_err_scale = 2.0
+    tar_pos_err_scale = 0.5
+    sit_pos_err_scale = 10
 
-    tar_rot_w = 0.6
+    near_reward_w = 0.7
+    far_reward_w = 0.3
+
+    tar_pos_reward_w = 0.5
     vel_reward_w = 0.4
-
-    up = torch.zeros_like(tar_pos)
-    up[..., -1] = 1
-    tar_up = quat_rotate(tar_rot, up)
-    tar_rot_err = torch.sum(up * tar_up, dim=-1)
-    tar_rot_r = torch.clamp_min(1.0 - tar_rot_err, 0.0)
+    facing_reward_w = 0.1
 
     root_pos = root_state[..., 0:3]
+    tar_pos_diff = tar_pos[..., 0:2] - root_pos[..., 0:2]
+    tar_pos_err = torch.sum(tar_pos_diff * tar_pos_diff, dim=-1)
+    tar_pos_reward = torch.exp(-tar_pos_err_scale * tar_pos_err)
+
+    far_case = torch.sqrt(tar_pos_err) > 0.5
+
     tar_dir = tar_pos[..., 0:2] - root_pos[..., 0:2]
     tar_dir = torch.nn.functional.normalize(tar_dir, dim=-1)
     delta_root_pos = root_pos - prev_root_pos
@@ -276,17 +289,31 @@ def compute_strike_reward(tar_pos, tar_rot, root_state, prev_root_pos, strike_bo
     speed_mask = tar_dir_speed <= 0
     vel_reward[speed_mask] = 0
 
-    reward = tar_rot_w * tar_rot_r + vel_reward_w * vel_reward
+    root_rot = root_state[..., 3:7]
+    heading_rot = torch_utils.calc_heading_quat(root_rot)
+    facing_dir = torch.zeros_like(root_pos)
+    facing_dir[..., 0] = 1.0
+    facing_dir = quat_rotate(heading_rot, facing_dir)
+    facing_err = torch.sum(tar_dir * facing_dir[..., 0:2], dim=-1)
+    facing_reward = torch.clamp_min(facing_err, 0.0)
 
-    succ = tar_rot_err < 0.2
-    reward = torch.where(succ, torch.ones_like(reward), reward)
+    tar_sit_pos_diff = tar_sit_pos - root_pos
+    tar_sit_pos_err = torch.sum(tar_sit_pos_diff * tar_sit_pos_diff, dim=-1)
+    tar_sit_pos_reward = torch.exp(-sit_pos_err_scale * tar_sit_pos_err)
+
+    far_reward = tar_pos_reward_w * tar_pos_reward + vel_reward_w * vel_reward \
+                 + facing_reward_w * facing_reward
+    near_reward = tar_sit_pos_reward
+
+    reward = torch.where(far_case, near_reward_w * near_reward + far_reward_w * far_reward,
+                         near_reward_w * near_reward + far_reward_w)
 
     return reward
 
 
 @torch.jit.script
 def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_ids, rigid_body_pos,
-                           tar_contact_forces, strike_body_ids, max_episode_length,
+                           tar_contact_forces, sit_body_ids, max_episode_length,
                            enable_early_termination, termination_heights):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, bool, Tensor) -> Tuple[Tensor, Tensor]
     contact_force_threshold = 1.0
@@ -308,12 +335,12 @@ def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_id
 
         tar_has_contact = torch.any(torch.abs(tar_contact_forces[..., 0:2]) > contact_force_threshold, dim=-1)
 
-        nonstrike_body_force = masked_contact_buf
-        nonstrike_body_force[:, strike_body_ids, :] = 0
-        nonstrike_body_has_contact = torch.any(torch.abs(nonstrike_body_force) > contact_force_threshold, dim=-1)
-        nonstrike_body_has_contact = torch.any(nonstrike_body_has_contact, dim=-1)
+        nonsit_body_force = masked_contact_buf
+        nonsit_body_force[:, sit_body_ids, :] = 0
+        nonsit_body_has_contact = torch.any(torch.abs(nonsit_body_force) > contact_force_threshold, dim=-1)
+        nonsit_body_has_contact = torch.any(nonsit_body_has_contact, dim=-1)
 
-        tar_fail = torch.logical_and(tar_has_contact, nonstrike_body_has_contact)
+        tar_fail = torch.logical_and(tar_has_contact, nonsit_body_has_contact)
 
         has_failed = torch.logical_or(has_fallen, tar_fail)
 

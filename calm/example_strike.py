@@ -1,31 +1,7 @@
-# Copyright (c) 2018-2022, NVIDIA Corporation
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# 1. Redistributions of source code must retain the above copyright notice, this
-#    list of conditions and the following disclaimer.
-#
-# 2. Redistributions in binary form must reproduce the above copyright notice,
-#    this list of conditions and the following disclaimer in the documentation
-#    and/or other materials provided with the distribution.
-#
-# 3. Neither the name of the copyright holder nor the names of its
-#    contributors may be used to endorse or promote products derived from
-#    this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+"""
+Example of load trained model and test it in simulation
+"""
+import importlib
 from utils.config import set_np_formatting, set_seed, get_args, parse_sim_params, load_cfg
 from utils.parse_task import parse_task
 
@@ -54,9 +30,9 @@ from learning import calm_models
 from learning import calm_network_builder
 
 from env.tasks import humanoid_amp_task
-
+import numpy as np
 import datetime
-
+import torch
 try:
     import wandb
 except:
@@ -265,7 +241,54 @@ def main():
     runner = build_alg_runner(algo_observer)
     runner.load(cfg_train)
     runner.reset()
-    runner.run(vargs)
+    runner.load_config(runner.default_config)
+    if 'features' not in runner.config:
+        runner.config['features'] = {}
+    runner.config['features']['observer'] = runner.algo_observer
+    agent = runner.algo_factory.create(runner.algo_name, base_name='run', config=runner.config)
+
+    done_indices = []
+    obs = agent.env_reset(done_indices)
+    max_steps = 108000 // 4
+    num_envs = agent.vec_env.env.task.num_envs
+    env_ids = torch.tensor(np.arange(num_envs), dtype=torch.float32, device='cuda:0')
+    rand_action_probs = 1.0 - torch.exp(10 * (env_ids / (num_envs - 1.0) - 1.0))
+    rand_action_probs[0] = 1.0
+    rand_action_probs[-1] = 0.0
+
+    sum_rewards = 0
+    sum_steps = 0
+    sum_dones = 0
+    epi_length = torch.zeros(num_envs, dtype=torch.float32, device='cuda:0')
+    rewards = torch.zeros(num_envs, dtype=torch.float32, device='cuda:0')
+
+    for n in range(max_steps):
+        obs = agent.env_reset(done_indices)
+        with torch.no_grad():
+            # res_dict = agent.get_action_values(obs, rand_action_probs)
+            # obs, r, done, info = agent.env_step(res_dict['actions'])
+            actions = torch.zeros((num_envs, 31), dtype=torch.float32, device='cuda:0')
+            obs, r, done, info = agent.env_step(actions)
+        rewards += r[0]
+        epi_length += 1
+        all_done_indices = done.nonzero(as_tuple=False)
+        done_indices = all_done_indices[::agent.num_agents]
+        done_count = len(done_indices)
+
+        if done_count > 0:
+            cur_rewards = rewards[done_indices].sum().item()
+            cur_steps = epi_length[done_indices].sum().item()
+
+            rewards = rewards * (1.0 - done.float())
+            epi_length = epi_length * (1.0 - done.float())
+            sum_rewards += cur_rewards
+            sum_steps += cur_steps
+            sum_dones += done_count
+
+            print(
+                "current reward: {:.2f}, current episode length: {:.2f}, mean rewards: {:.2f}, mean episode lengths: {:.2f}, ".format(
+                    cur_rewards / done_count, cur_steps / done_count, sum_rewards / sum_dones, sum_steps / sum_dones))
+        done_indices = done_indices[:, 0]
 
     return
 

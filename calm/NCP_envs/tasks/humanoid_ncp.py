@@ -38,7 +38,7 @@ from NCP_envs.tasks.humanoid import Humanoid, dof_to_obs
 from utils import torch_utils
 from utils.motion_lib import MotionLib
 import uuid
-
+from datetime import datetime
 
 class HumanoidNCP(Humanoid):
     class StateInit(Enum):
@@ -67,9 +67,9 @@ class HumanoidNCP(Humanoid):
         if self.enable_kin:
             self._build_kin_tensors()
         self._time = torch.zeros(self.num_envs, device=self.device)
-        self._motion_ids = torch.ones(self.num_envs, device=self.device, dtype=torch.long) * -1
+        self._motion_ids = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
         self._changing_motion_counter = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
-        self._reset_start_env = torch.ones(self.num_envs, device=self.device, dtype=torch.bool)
+        self._reset_start_env = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
 
         motion_file = cfg['env']['motion_file']
         motion_index = cfg["env"]['motion_index']
@@ -93,7 +93,7 @@ class HumanoidNCP(Humanoid):
         self._dynamic_sample_save_path = cfg['env']['dynamic_sample_save_path']
         if self._dynamic_sample_save_path != 'None':
             self._dynamic_sample_save_path = self._dynamic_sample_save_path + \
-                                             self._actor_id + '_dynamic_sample_result.csv'
+                                             datetime.now().strftime("%d-%H-%M-%S") + '_dynamic_sample_result.csv'
             if os.path.exists(self._dynamic_sample_save_path):
                 dynamic_sample_result = np.array(pd.read_csv(self._dynamic_sample_save_path))
                 if dynamic_sample_result.shape[0] > 0:
@@ -305,7 +305,7 @@ class HumanoidNCP(Humanoid):
     def _reset_ref_state_init(self, env_ids):
         num_envs = env_ids.shape[0]
 
-        reset_start_env_ids = env_ids
+        reset_start_env_ids = env_ids[self._reset_start_env[env_ids]]
         if (self._dynamic_sample_strategy is not None and len(reset_start_env_ids) > 0):
             motion_id = self._motion_ids[reset_start_env_ids]
             # motion_id may be same, in this case only the first number will be set
@@ -328,8 +328,7 @@ class HumanoidNCP(Humanoid):
             self._update_motion_weight_num += 1
 
         self._rewards_sum[env_ids] = 0.0
-        self._motion_ids[env_ids] += 1
-        self._motion_ids[env_ids] = self._motion_ids[env_ids] % self._motion_lib.num_motions()
+        self._motion_ids[env_ids] = self._motion_lib.sample_motions(len(env_ids))
         self._motion_sampled_times[self._motion_ids[env_ids]] += 1
 
         if self._state_init == HumanoidNCP.StateInit.Random or self._state_init == HumanoidNCP.StateInit.Start:
@@ -546,9 +545,11 @@ class HumanoidNCP(Humanoid):
         # print("num of reward < 0.7 {}".format(torch.sum(self.max_reward < 0.7)))
         # if self._total_step_num % 100 == 0:
         #     data = {
-        #         'reward': self.max_reward.cpu().numpy(),
+        #         'joint_pos': self.save_joint_pos.cpu().numpy(),
+        #         'vel': self.save_vel.cpu().numpy(),
+        #         'ang_vel': self.save_ang_vel.cpu().numpy(),
         #     }
-        #     np.save('tracking_reward_0519.npy', data)
+        #     np.save('tracking_result_boxing_0511.npy', data)
         return reward
 
     def _compute_reset(self):

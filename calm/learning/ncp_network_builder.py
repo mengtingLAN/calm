@@ -31,6 +31,7 @@ from rl_games.algos_torch import network_builder
 import torch
 import torch.nn as nn
 import numpy as np
+import math
 
 from learning import amp_network_builder
 
@@ -190,18 +191,17 @@ class LLC(nn.Module):
             nn.Linear(nc.embed_dim, nc.embed_dim),
             nn.ReLU(),
             nn.Linear(nc.embed_dim, nc.embed_dim // 2),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Linear(nc.embed_dim // 2, nc.actions_dim)
             # nn.Linear(nc.embed_dim // 2, nc.ac_space['A_LLC'].shape[0])
         )
-        self.output_layer = nn.Linear(nc.embed_dim // 2, nc.actions_dim)
-        _normc_initializer(self.output_layer.weight, 0.01)
+        _normc_initializer(self.mlp[-1].weight, 0.01)
 
 
     def forward(self, prop, z):
         z = z.squeeze()
         embed = torch.hstack((prop, z))
-        mlp_out = self.mlp(embed)
-        out = self.output_layer(mlp_out)
+        out = self.mlp(embed)
         return out
 
 
@@ -212,7 +212,7 @@ class PiNet(nn.Module):
         self.nc = nc
         if self.nc.is_VQ:
             self.embeddings = nn.Embedding(nc.num_embeddings, nc.z_len // nc.code_num)
-            self.embeddings.weight.data.uniform_(-3.0 / nc.num_embeddings, 3.0 / nc.num_embeddings)
+            self.embeddings.weight.data.uniform_(-math.sqrt(3.0 / nc.num_embeddings), math.sqrt(3.0 / nc.num_embeddings))
             self.num_embeddings = nc.num_embeddings
 
         self.llc = LLC(nc)
