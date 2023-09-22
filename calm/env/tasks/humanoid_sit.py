@@ -33,6 +33,8 @@ from isaacgym.torch_utils import *
 
 import env.tasks.humanoid_amp as humanoid_amp
 import env.tasks.humanoid_amp_task as humanoid_amp_task
+from env.tasks.humanoid_amp import HumanoidAMP
+
 from utils import torch_utils
 
 
@@ -48,7 +50,7 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
         self._tar_dist_min = 0.5
         self._tar_dist_max = 2.0
         self._near_dist = 1
-        self._near_prob = 0.8
+        self._near_prob = 0.6
 
         self._prev_root_pos = torch.zeros([self.num_envs, 3], device=self.device, dtype=torch.float)
 
@@ -60,7 +62,8 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
                              (-0.25, 0.242, 0), (0.222, 0.242, 0), (0.222, 0.242, 0.782), (-0.25, 0.242, 0.782)), device=self.device, dtype=torch.float)
 
         self.sit_pos = torch.tensor((0.00005, 0.000434, 0.429), device=self.device, dtype=torch.float)
-
+        self.chair_orientation = torch.tensor((1.0, 0.0, 0.0), device=self.device, dtype=torch.float)
+        self.unmove_counter = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
 
         return
 
@@ -83,8 +86,8 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
         return
 
     def _load_target_asset(self):
-        asset_root = "data/assets/000_Chair/"
-        asset_file = "001_Chair.urdf"
+        asset_root = "data/assets/mjcf/"
+        asset_file = "Chair_target.urdf"
 
         asset_options = gymapi.AssetOptions()
         asset_options.fix_base_link = True
@@ -166,6 +169,49 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
         self._reset_default_env_ids = env_ids
         return
 
+    def _reset_ref_state_init(self, env_ids):
+        num_envs = env_ids.shape[0]
+        motion_ids = self._motion_lib.sample_motions(num_envs)
+
+        if (self._state_init == HumanoidAMP.StateInit.Random
+                or self._state_init == HumanoidAMP.StateInit.Hybrid):
+            motion_times = self._motion_lib.sample_time(motion_ids)
+        elif self._state_init == HumanoidAMP.StateInit.Start:
+            motion_times = torch.zeros(num_envs, device=self.device)
+        else:
+            assert False, "Unsupported state initialization strategy: {:s}".format(str(self._state_init))
+
+        root_pos, root_rot, dof_pos, root_vel, root_ang_vel, dof_vel, key_pos \
+            = self._motion_lib.get_motion_state(motion_ids, motion_times)
+
+        init_near = torch.rand([num_envs], dtype=self._target_states.dtype,
+                               device=self._target_states.device) < self._near_prob
+        dist_max = self._tar_dist_max * torch.ones([num_envs], dtype=self._target_states.dtype,
+                                                   device=self._target_states.device)
+        dist_max[init_near] = self._near_dist
+        rand_dist = (dist_max - self._tar_dist_min) * torch.rand([num_envs], dtype=self._target_states.dtype,
+                                                                 device=self._target_states.device) + self._tar_dist_min
+
+        rand_theta = np.pi * torch.rand([num_envs], dtype=self._target_states.dtype, device=self._target_states.device) \
+                     + -0.5 * np.pi * torch.ones([num_envs], dtype=self._target_states.dtype,
+                                                 device=self._target_states.device)
+        root_pos[:, 0] = rand_dist * torch.cos(rand_theta) + self._target_states[env_ids, 0]
+        root_pos[:, 1] = rand_dist * torch.sin(rand_theta) + self._target_states[env_ids, 1]
+
+        self._set_env_state(
+            env_ids=env_ids,
+            root_pos=root_pos,
+            root_rot=root_rot,
+            dof_pos=dof_pos,
+            root_vel=root_vel,
+            root_ang_vel=root_ang_vel,
+            dof_vel=dof_vel
+        )
+
+        self._reset_ref_env_ids = env_ids
+        self._reset_ref_motion_ids = motion_ids
+        self._reset_ref_motion_times = motion_times
+        return
 
     def _reset_env_tensors(self, env_ids):
         super()._reset_env_tensors(env_ids)
@@ -181,7 +227,7 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
         else:
             root_states = self._humanoid_root_states[env_ids]
 
-        obs = compute_sit_observations(root_states, self.bbox_pos, self.sit_pos)
+        obs = compute_sit_observations(root_states, self.bbox_pos, self.sit_pos, self.chair_orientation)
         return obs
 
     def _compute_reward(self, actions):
@@ -194,14 +240,22 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
         return
 
     def _compute_reset(self):
-        self.reset_buf[:], self._terminate_buf[:] = compute_humanoid_reset(self.reset_buf, self.progress_buf,
-                                                                           self._contact_forces, self._contact_body_ids,
-                                                                           self._rigid_body_pos,
-                                                                           self._tar_contact_forces,
-                                                                           self._sit_body_ids,
-                                                                           self.max_episode_length,
-                                                                           self._enable_early_termination,
-                                                                           self._termination_heights)
+        root_pos_err_threshold = 0.02
+        root_pos_diff = self._humanoid_root_states[..., 0:3] - self._prev_root_pos
+        root_pos_err = torch.sqrt(torch.sum(root_pos_diff*root_pos_diff, dim=-1))
+        self.unmove_counter = torch.where(root_pos_err < root_pos_err_threshold, self.unmove_counter+1, self.unmove_counter)
+
+        self.reset_buf[:], self._terminate_buf[:], self.unmove_counter[:] = compute_humanoid_reset(self.reset_buf, self.progress_buf,
+                                                                               self._contact_forces, self._contact_body_ids,
+                                                                               self._rigid_body_pos,
+                                                                               self._humanoid_root_states,
+                                                                               self.chair_orientation,
+                                                                               self._tar_contact_forces,
+                                                                               self._sit_body_ids,
+                                                                               self.max_episode_length,
+                                                                               self._enable_early_termination,
+                                                                               self._termination_heights,
+                                                                               self.unmove_counter)
         return
 
     def _draw_task(self):
@@ -226,17 +280,16 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
 #####################################################################
 
 @torch.jit.script
-def compute_sit_observations(root_states, bbox_pos, sit_pos):
-    # facing direction; bbox; target position;All these
+def compute_sit_observations(root_states, bbox_pos, sit_pos, chair_orientation):
+    # chair_orientation; bbox; target position;All these
     # goal features are recorded in the character’s local frame.
     root_pos = root_states[:, 0:3]
     root_rot = root_states[:, 3:7]
 
     heading_rot = torch_utils.calc_heading_quat_inv(root_rot)
 
-    facing_direction = torch.tensor((1.0, 0.0, 0.0), device=root_rot.device, dtype=torch.float)
-    facing_direction = facing_direction.repeat(root_rot.shape[0], 1)
-    local_facing_direction = quat_rotate(heading_rot, facing_direction)
+    chair_orientation = chair_orientation.repeat(root_rot.shape[0], 1)
+    local_chair_orientation = quat_rotate(heading_rot, chair_orientation)
 
     bbox_pos = bbox_pos.unsqueeze(0).repeat(root_rot.shape[0], 1, 1)
     local_bbox_pos = bbox_pos - root_pos.unsqueeze(1)
@@ -252,7 +305,7 @@ def compute_sit_observations(root_states, bbox_pos, sit_pos):
     local_sit_pos[..., -1] = sit_pos[..., -1]
     local_sit_pos = quat_rotate(heading_rot, local_sit_pos)
 
-    obs = torch.cat([local_facing_direction[:, 0:2], local_bbox_pos, local_sit_pos], dim=-1)
+    obs = torch.cat([local_chair_orientation[:, 0:2], local_bbox_pos, local_sit_pos], dim=-1)
     return obs
 
 
@@ -262,7 +315,7 @@ def compute_sit_reward(tar_pos, tar_sit_pos, root_state, prev_root_pos, dt):
     tar_speed = 1.5
     vel_err_scale = 2.0
     tar_pos_err_scale = 0.5
-    sit_pos_err_scale = 10
+    sit_pos_err_scale = 20
 
     near_reward_w = 0.7
     far_reward_w = 0.3
@@ -312,11 +365,12 @@ def compute_sit_reward(tar_pos, tar_sit_pos, root_state, prev_root_pos, dt):
 
 
 @torch.jit.script
-def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_ids, rigid_body_pos,
-                           tar_contact_forces, sit_body_ids, max_episode_length,
-                           enable_early_termination, termination_heights):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, bool, Tensor) -> Tuple[Tensor, Tensor]
+def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_ids, rigid_body_pos, root_state,
+                           chair_orientation, tar_contact_forces, sit_body_ids, max_episode_length,
+                           enable_early_termination, termination_heights, unmove_counter):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, bool, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor]
     contact_force_threshold = 1.0
+    unmove_counter_threshold = 3
 
     terminated = torch.zeros_like(reset_buf)
 
@@ -342,7 +396,22 @@ def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_id
 
         tar_fail = torch.logical_and(tar_has_contact, nonsit_body_has_contact)
 
+        root_rot = root_state[..., 3:7]
+        root_pos = root_state[..., 0:3]
+        heading_rot = torch_utils.calc_heading_quat(root_rot)
+        facing_dir = torch.zeros_like(root_pos)
+        facing_dir[..., 0] = 1.0
+        facing_dir = quat_rotate(heading_rot, facing_dir)
+        chair_orientation = chair_orientation.repeat(root_rot.shape[0], 1)
+        dir_diff = torch.sum(chair_orientation[..., 0:2] * facing_dir[..., 0:2], dim=-1)
+        is_reverse = dir_diff < 0
+        contact_and_is_reverse = torch.logical_and(tar_has_contact, is_reverse)
+        tar_fail = torch.logical_or(tar_fail, contact_and_is_reverse)
+
         has_failed = torch.logical_or(has_fallen, tar_fail)
+
+        is_unmove = unmove_counter > 10
+        has_failed = torch.logical_or(has_failed, is_unmove)
 
         # first timestep can sometimes still have nonzero contact forces
         # so only check after first couple of steps
@@ -350,5 +419,6 @@ def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_id
         terminated = torch.where(has_failed, torch.ones_like(reset_buf), terminated)
 
     reset = torch.where(progress_buf >= max_episode_length - 1, torch.ones_like(reset_buf), terminated)
+    unmove_counter = torch.where(reset, torch.zeros_like(unmove_counter), unmove_counter)
 
-    return reset, terminated
+    return reset, terminated, unmove_counter

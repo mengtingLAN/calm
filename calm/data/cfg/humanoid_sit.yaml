@@ -1,6 +1,6 @@
 # if given, will override the device setting in gym. 
 env: 
-  numEnvs: 16384
+  numEnvs: 4096
   envSpacing: 5
   episodeLength: 300
   isFlagrun: False
@@ -9,7 +9,7 @@ env:
   pdControl: False
   powerScale: 1.0
   controlFrequencyInv: 2 # 30 Hz
-  stateInit: "Default"
+  stateInit: "Hybrid"
   hybridInitProb: 0.5
   numAMPObsSteps: 10
   numAMPEncObsSteps: 60
@@ -20,7 +20,7 @@ env:
   terminationHeight: 0.15
   enableEarlyTermination: True
 
-  sitBodyNames: ["pelvis", "torso", "right_thigh", "left_thigh"]
+  sitBodyNames: ["torso", "pelvis", "right_thigh", "left_thigh", "right_shin", "left_shin"， ]
   enableTaskObs: True
   
   asset:

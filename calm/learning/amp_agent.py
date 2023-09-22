@@ -134,7 +134,7 @@ class AMPAgent(common_agent.CommonAgent):
             self.current_lengths = self.current_lengths * not_dones
             
             if (self.vec_env.env.task.viewer):
-                self._amp_debug(infos)
+                self._amp_debug(infos, rewards)
                 
             done_indices = done_indices[:, 0]
 
@@ -142,10 +142,10 @@ class AMPAgent(common_agent.CommonAgent):
         mb_values = self.experience_buffer.tensor_dict['values']
         mb_next_values = self.experience_buffer.tensor_dict['next_values']
 
-        mb_rewards = self.experience_buffer.tensor_dict['rewards']
+        task_rewards = self.experience_buffer.tensor_dict['rewards']
         mb_amp_obs = self.experience_buffer.tensor_dict['amp_obs']
         amp_rewards = self._calc_amp_rewards(mb_amp_obs)
-        mb_rewards = self._combine_rewards(mb_rewards, amp_rewards)
+        mb_rewards = self._combine_rewards(task_rewards, amp_rewards)
 
         mb_advs = self.discount_values(mb_fdones, mb_values, mb_rewards, mb_next_values)
         mb_returns = mb_advs + mb_values
@@ -156,6 +156,7 @@ class AMPAgent(common_agent.CommonAgent):
 
         for k, v in amp_rewards.items():
             batch_dict[k] = a2c_common.swap_and_flatten01(v)
+        batch_dict['task_rewards'] = a2c_common.swap_and_flatten01(task_rewards)
 
         return batch_dict
     
@@ -623,6 +624,7 @@ class AMPAgent(common_agent.CommonAgent):
     def _record_train_batch_info(self, batch_dict, train_info):
         super()._record_train_batch_info(batch_dict, train_info)
         train_info['disc_rewards'] = batch_dict['disc_rewards']
+        train_info['task_rewards'] = batch_dict['task_rewards']
         return
 
     def _log_train_info(self, train_info, frame):
@@ -641,9 +643,13 @@ class AMPAgent(common_agent.CommonAgent):
             disc_reward_std, disc_reward_mean = torch.std_mean(train_info['disc_rewards'])
             self.writer.add_scalar('info/disc_reward_mean', disc_reward_mean.item(), frame)
             self.writer.add_scalar('info/disc_reward_std', disc_reward_std.item(), frame)
+
+            task_reward_std, task_reward_mean = torch.std_mean(train_info['task_rewards'])
+            self.writer.add_scalar('info/task_reward_mean', task_reward_mean.item(), frame)
+            self.writer.add_scalar('info/task_reward_std', task_reward_std.item(), frame)
         return
 
-    def _amp_debug(self, info):
+    def _amp_debug(self, info, task_rewards):
         with torch.no_grad():
             amp_obs = info['amp_obs']
             amp_obs = amp_obs[0:1]
@@ -653,5 +659,7 @@ class AMPAgent(common_agent.CommonAgent):
 
             disc_pred = disc_pred.detach().cpu().numpy()[0, 0]
             disc_reward = disc_reward.cpu().numpy()[0, 0]
+            task_rewards = task_rewards.cpu().numpy()[0, 0]
             print("disc_pred: ", disc_pred, disc_reward)
+            print("task_rewards: ", task_rewards)
         return

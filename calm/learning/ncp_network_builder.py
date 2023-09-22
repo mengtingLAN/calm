@@ -32,9 +32,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import math
-
+import pickle
 from learning import amp_network_builder
-
 ENC_LOGIT_INIT_SCALE = 0.1
 
 
@@ -56,8 +55,6 @@ class NCPBuilder(network_builder.A2CBuilder):
             ob_space = kwargs.get('input_shape')
             self.value_size = kwargs.get('value_size', 1)
             self.num_seqs = kwargs.get('num_seqs', 1)
-            actions_log_std_init = torch.tensor(-2.0)
-            self.actions_log_std = nn.Parameter(torch.ones(actions_dim) * actions_log_std_init, requires_grad=True)
 
             prop_dim = ob_space.spaces['prop'].shape[0]
             future_dim = ob_space.spaces['future'].shape[0]
@@ -71,7 +68,14 @@ class NCPBuilder(network_builder.A2CBuilder):
             self.is_VQ = nc.is_VQ
             self.value_net = ValueNet(nc)
             self.pi_net = PiNet(nc)
+            actions_log_std_init = torch.tensor(-2.0)
+            self.actions_log_std = nn.Parameter(torch.ones(actions_dim) * actions_log_std_init, requires_grad=True)
 
+            model_path = "output/rand_model:0001_20230119030019.model2"
+            with open(model_path, 'rb') as f:
+                model = pickle.load(f)
+            model = [model[-1]] + model[0:-1]
+            self.load_from_list_numpy(model)
             return
 
         def forward(self, obs_dict):
@@ -135,6 +139,16 @@ class NCPBuilder(network_builder.A2CBuilder):
             future_rms = future_rms.clamp(-5.0, 5.0)
             value = self.value_net(prop_rms, future_rms)
             return value
+
+        def load_from_list_numpy(self, np_params):
+            for torch_p, np_p in zip(self.state_dict().keys(), np_params):
+                if "rms" in torch_p:
+                    self.state_dict()[torch_p].copy_(torch.from_numpy(np_p))
+                elif "actions_log_std" in torch_p:
+                    self.state_dict()[torch_p].copy_(torch.from_numpy(np_p.transpose().squeeze()))
+                else:
+                    self.state_dict()[torch_p].copy_(torch.from_numpy(np_p.transpose()))
+            return
 
 
 
@@ -212,7 +226,7 @@ class PiNet(nn.Module):
         self.nc = nc
         if self.nc.is_VQ:
             self.embeddings = nn.Embedding(nc.num_embeddings, nc.z_len // nc.code_num)
-            self.embeddings.weight.data.uniform_(-math.sqrt(3.0 / nc.num_embeddings), math.sqrt(3.0 / nc.num_embeddings))
+            self.embeddings.weight.data.uniform_(-1 / nc.num_embeddings,  1 / nc.num_embeddings)
             self.num_embeddings = nc.num_embeddings
 
         self.llc = LLC(nc)

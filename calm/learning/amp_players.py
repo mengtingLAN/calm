@@ -59,10 +59,10 @@ class AMPPlayerContinuous(common_player.CommonPlayer):
         
         return
 
-    def _post_step(self, info):
+    def _post_step(self, info, r):
         super()._post_step(info)
         if self.env.task.viewer:
-            self._amp_debug(info)
+            self._amp_debug(info, r)
         return
 
     def _build_net_config(self):
@@ -77,7 +77,7 @@ class AMPPlayerContinuous(common_player.CommonPlayer):
         self._amp_observation_space = config['amp_input_shape']
         return config
 
-    def _amp_debug(self, info):
+    def _amp_debug(self, info, task_rewards):
         with torch.no_grad():
             amp_obs = info['amp_obs']
             amp_obs = amp_obs[0:1]
@@ -87,8 +87,9 @@ class AMPPlayerContinuous(common_player.CommonPlayer):
 
             disc_pred = disc_pred.detach().cpu().numpy()[0, 0]
             disc_reward = disc_reward.cpu().numpy()[0, 0]
+            task_rewards = task_rewards.cpu().numpy()[0]
             print("disc_pred: ", disc_pred, disc_reward)
-
+            print("task_rewards: ", task_rewards)
         return
 
     def _preproc_amp_obs(self, amp_obs):

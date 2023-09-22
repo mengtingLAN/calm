@@ -11,11 +11,11 @@ params:
     name: ncp
     separate: True
 
-    is_VQ: False
+    is_VQ: True
     rms_momentum: 0.0001
     embed_dim: 1024
-    z_len: 64
-    num_embeddings: 256
+    z_len: 512
+    num_embeddings: 512
     code_num: 1
 
 
@@ -57,4 +57,4 @@ params:
     e_latent_loss_coef: 0.25
     q_latent_loss_coef: 1.0
     rms_loss_coef: 1.0
-    device: cuda:0
+    device: cuda:1

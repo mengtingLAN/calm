@@ -103,7 +103,7 @@ class CommonPlayer(players.PpoPlayerContinuous):
                 cr += r
                 steps += 1
   
-                self._post_step(info)
+                self._post_step(info, r)
 
                 if render:
                     self.env.render(mode = 'human')
