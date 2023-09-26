@@ -43,6 +43,7 @@ class HumanoidAMP(Humanoid):
         Start = 1
         Random = 2
         Hybrid = 3
+        Fixed = 4
 
     def __init__(self, cfg, sim_params, physics_engine, device_type, device_id, headless):
         state_init = cfg["env"]["stateInit"]

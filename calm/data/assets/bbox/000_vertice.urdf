@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot name="object">
+
+ <link name="obj">
+  <visual>
+   <origin rpy="0 0 0" xyz="-0.244 -0.309 -0.025"/>
+   <geometry>
+    <circle radius="0.1"/>
+   </geometry>
+   <material name="mat">
+    <color rgba="0.7 0.7 0.7 1"/>
+   </material>
+  </visual>
+ </link>
+</robot>

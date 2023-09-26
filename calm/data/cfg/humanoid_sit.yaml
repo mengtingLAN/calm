@@ -20,7 +20,7 @@ env:
   terminationHeight: 0.15
   enableEarlyTermination: True
 
-  sitBodyNames: ["torso", "pelvis", "right_thigh", "left_thigh", "right_shin", "left_shin"， ]
+  sitBodyNames: ["torso", "pelvis", "right_thigh", "left_thigh", "right_shin", "left_shin"]
   enableTaskObs: True
   
   asset:

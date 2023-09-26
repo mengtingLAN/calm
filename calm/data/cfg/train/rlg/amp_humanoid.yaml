@@ -90,4 +90,4 @@ params:
     task_reward_w: 0.0
     disc_reward_w: 1.0
 
-    device: cuda:2
+    device: cuda:0

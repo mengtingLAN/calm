@@ -139,6 +139,40 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
 
         return
 
+    def _reset_actors(self, env_ids):
+        if self._state_init == HumanoidAMP.StateInit.Fixed:
+            self._reset_fixed(env_ids)
+        elif self._state_init == HumanoidAMP.StateInit.Default:
+            self._reset_default(env_ids)
+        elif (self._state_init == HumanoidAMP.StateInit.Start
+              or self._state_init == HumanoidAMP.StateInit.Random):
+            self._reset_ref_state_init(env_ids)
+        elif self._state_init == HumanoidAMP.StateInit.Hybrid:
+            self._reset_hybrid_state_init(env_ids)
+        else:
+            assert False, "Unsupported state initialization strategy: {:s}".format(str(self._state_init))
+        return
+
+    def _reset_fixed(self, env_ids):
+        n = len(env_ids)
+
+        fixed_distance = 0.4
+
+        self._humanoid_root_states[env_ids, 0] = fixed_distance + self._target_states[env_ids, 0]
+        self._humanoid_root_states[env_ids, 1] = self._target_states[env_ids, 1]
+        self._humanoid_root_states[env_ids, 2] = self._initial_humanoid_root_states[env_ids, 2]
+
+        self._humanoid_root_states[env_ids, 3:7] = self._initial_humanoid_root_states[env_ids, 3:7]
+        self._humanoid_root_states[env_ids, 7:10] = self._initial_humanoid_root_states[env_ids, 7:10]
+        self._humanoid_root_states[env_ids, 10:13] = self._initial_humanoid_root_states[env_ids, 10:13]
+
+        self._dof_pos[env_ids] = self._initial_dof_pos[env_ids]
+        self._dof_vel[env_ids] = self._initial_dof_vel[env_ids]
+        self._reset_default_env_ids = env_ids
+        return
+
+
+
     def _reset_default(self, env_ids):
         n = len(env_ids)
 
@@ -236,6 +270,7 @@ class HumanoidSit(humanoid_amp_task.HumanoidAMPTask):
 
         self.rew_buf[:] = compute_sit_reward(tar_pos, self.sit_pos, char_root_state,
                                                 self._prev_root_pos,
+                                                self.chair_orientation,
                                                 self.dt)
         return
 
@@ -310,12 +345,12 @@ def compute_sit_observations(root_states, bbox_pos, sit_pos, chair_orientation):
 
 
 @torch.jit.script
-def compute_sit_reward(tar_pos, tar_sit_pos, root_state, prev_root_pos, dt):
-    # type: (Tensor, Tensor, Tensor, Tensor, float) -> Tensor
+def compute_sit_reward(tar_pos, tar_sit_pos, root_state, prev_root_pos, chair_orientation, dt):
+    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tensor
     tar_speed = 1.5
     vel_err_scale = 2.0
     tar_pos_err_scale = 0.5
-    sit_pos_err_scale = 20
+    sit_pos_err_scale = 10
 
     near_reward_w = 0.7
     far_reward_w = 0.3
@@ -354,8 +389,13 @@ def compute_sit_reward(tar_pos, tar_sit_pos, root_state, prev_root_pos, dt):
     tar_sit_pos_err = torch.sum(tar_sit_pos_diff * tar_sit_pos_diff, dim=-1)
     tar_sit_pos_reward = torch.exp(-sit_pos_err_scale * tar_sit_pos_err)
 
+    chair_orientation = chair_orientation.repeat(root_rot.shape[0], 1)
+    near_facing_err = torch.sum(chair_orientation[..., 0:2] * facing_dir[..., 0:2], dim=-1)
+    near_facing_reward = torch.clamp_min(near_facing_err, 0.0)
+
     far_reward = tar_pos_reward_w * tar_pos_reward + vel_reward_w * vel_reward \
                  + facing_reward_w * facing_reward
+    # near_reward = torch.where(far_case, tar_sit_pos_reward, 0.5 * tar_sit_pos_reward + 0.5 * near_facing_reward)
     near_reward = tar_sit_pos_reward
 
     reward = torch.where(far_case, near_reward_w * near_reward + far_reward_w * far_reward,
@@ -370,7 +410,7 @@ def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_id
                            enable_early_termination, termination_heights, unmove_counter):
     # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float, bool, Tensor, Tensor) -> Tuple[Tensor, Tensor, Tensor]
     contact_force_threshold = 1.0
-    unmove_counter_threshold = 3
+    unmove_counter_threshold = 30
 
     terminated = torch.zeros_like(reset_buf)
 
@@ -385,32 +425,24 @@ def compute_humanoid_reset(reset_buf, progress_buf, contact_buf, contact_body_id
         fall_height[:, contact_body_ids] = False
         fall_height = torch.any(fall_height, dim=-1)
 
-        has_fallen = torch.logical_and(fall_contact, fall_height)
+        has_failed = torch.logical_and(fall_contact, fall_height)
 
-        tar_has_contact = torch.any(torch.abs(tar_contact_forces[..., 0:2]) > contact_force_threshold, dim=-1)
+        # tar_has_contact = torch.any(torch.abs(tar_contact_forces[..., 0:2]) > contact_force_threshold, dim=-1)
+        #
+        # root_rot = root_state[..., 3:7]
+        # root_pos = root_state[..., 0:3]
+        # heading_rot = torch_utils.calc_heading_quat(root_rot)
+        # facing_dir = torch.zeros_like(root_pos)
+        # facing_dir[..., 0] = 1.0
+        # facing_dir = quat_rotate(heading_rot, facing_dir)
+        # chair_orientation = chair_orientation.repeat(root_rot.shape[0], 1)
+        # dir_diff = torch.sum(chair_orientation[..., 0:2] * facing_dir[..., 0:2], dim=-1)
+        # is_reverse = dir_diff < 0
+        # contact_and_is_reverse = torch.logical_and(tar_has_contact, is_reverse)
+        #
+        # has_failed = torch.logical_or(has_failed, contact_and_is_reverse)
 
-        nonsit_body_force = masked_contact_buf
-        nonsit_body_force[:, sit_body_ids, :] = 0
-        nonsit_body_has_contact = torch.any(torch.abs(nonsit_body_force) > contact_force_threshold, dim=-1)
-        nonsit_body_has_contact = torch.any(nonsit_body_has_contact, dim=-1)
-
-        tar_fail = torch.logical_and(tar_has_contact, nonsit_body_has_contact)
-
-        root_rot = root_state[..., 3:7]
-        root_pos = root_state[..., 0:3]
-        heading_rot = torch_utils.calc_heading_quat(root_rot)
-        facing_dir = torch.zeros_like(root_pos)
-        facing_dir[..., 0] = 1.0
-        facing_dir = quat_rotate(heading_rot, facing_dir)
-        chair_orientation = chair_orientation.repeat(root_rot.shape[0], 1)
-        dir_diff = torch.sum(chair_orientation[..., 0:2] * facing_dir[..., 0:2], dim=-1)
-        is_reverse = dir_diff < 0
-        contact_and_is_reverse = torch.logical_and(tar_has_contact, is_reverse)
-        tar_fail = torch.logical_or(tar_fail, contact_and_is_reverse)
-
-        has_failed = torch.logical_or(has_fallen, tar_fail)
-
-        is_unmove = unmove_counter > 10
+        is_unmove = unmove_counter > unmove_counter_threshold
         has_failed = torch.logical_or(has_failed, is_unmove)
 
         # first timestep can sometimes still have nonzero contact forces

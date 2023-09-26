@@ -50,12 +50,13 @@ params:
     mixed_precision: False
     normalize_input: True
     normalize_value: True
+    normalize_amp_input: True
     reward_shaper:
       scale_value: 1
     normalize_advantage: True
     gamma: 0.99
     tau: 0.95
-    learning_rate: 2e-5
+    learning_rate: 5e-5
     lr_schedule: constant
     score_to_win: 20000
     max_epochs: 1000000
@@ -84,10 +85,12 @@ params:
     disc_grad_penalty: 5
     disc_reward_scale: 2
     disc_weight_decay: 0.0001
-    normalize_amp_input: True
     enable_eps_greedy: False
 
-    task_reward_w: 0.4
-    disc_reward_w: 0.6
+    task_reward_w: 0.5
+    disc_reward_w: 0.5
 
-    device: cuda:2
+    device: cuda:3
+
+    player:
+      games_num: 200000000

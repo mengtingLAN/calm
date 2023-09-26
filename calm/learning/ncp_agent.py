@@ -373,6 +373,7 @@ class NCPAgent(common_agent.CommonAgent):
         with torch.no_grad():
             reduce_kl = not self.is_rnn
             kl_dist = torch_ext.policy_kl(mu.detach(), sigma.detach(), old_mu_batch, old_sigma_batch, reduce_kl)
+            # print("kl:", kl_dist)
 
         self.train_result = {
             'entropy': entropy,

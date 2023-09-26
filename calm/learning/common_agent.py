@@ -150,6 +150,7 @@ class CommonAgent(a2c_continuous.A2CAgent):
                         self.writer.add_scalar('rewards{0}/frame'.format(i), mean_rewards[i], frame)
                         self.writer.add_scalar('rewards{0}/iter'.format(i), mean_rewards[i], epoch_num)
                         self.writer.add_scalar('rewards{0}/time'.format(i), mean_rewards[i], total_time)
+                        print("rewards_sum", mean_rewards[i], "frame", frame)
 
                     self.writer.add_scalar('episode_lengths/frame', mean_lengths, frame)
                     self.writer.add_scalar('episode_lengths/iter', mean_lengths, epoch_num)
